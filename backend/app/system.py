@@ -18,7 +18,7 @@ router = APIRouter(prefix="/api", tags=["system"])
 LAST_DEVICE_FILE = DATA_DIR / "last_training_device.json"
 _cache: dict[str, Any] = {"at": 0.0, "value": None}
 _update_cache: dict[str, Any] = {"at": 0.0, "value": None}
-REPO = os.environ.get("GITHUB_REPO", "FilipChalupa/wakework-trainer")
+REPO = os.environ.get("GITHUB_REPO", "FilipChalupa/wakeword-trainer")
 
 
 def app_version() -> str:
