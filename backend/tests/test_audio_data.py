@@ -111,3 +111,18 @@ def test_single_full_scale_sample_is_not_clipping(tmp_path):
     path = tmp_path / "peak.wav"
     sf.write(str(path), audio, sr, subtype="PCM_16")
     assert "clipping" not in analyze(path)["quality"]["issues"]
+
+
+def test_take_that_is_speech_from_edge_to_edge_is_cut_not_silent(tmp_path):
+    import numpy as np
+    import soundfile as sf
+
+    from app.recordings import analyze
+
+    sr = 16000
+    t = np.arange(int(1.0 * sr)) / sr
+    audio = (0.4 * np.sin(2 * np.pi * 200 * t) * (0.7 + 0.3 * np.sin(2 * np.pi * 4 * t))).astype(np.float32)
+    path = tmp_path / "full.wav"
+    sf.write(str(path), audio, sr, subtype="PCM_16")
+    issues = analyze(path)["quality"]["issues"]
+    assert "cut_start" in issues and "cut_end" in issues and "silent" not in issues and "too_short" not in issues

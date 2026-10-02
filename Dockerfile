@@ -39,6 +39,7 @@ RUN git clone https://github.com/kahrendt/microWakeWord /opt/microWakeWord \
     && python -c "import microwakeword.audio.augmentation, microwakeword.layers.modes, microwakeword.model_train_eval"
 
 COPY backend/ ./
+COPY scripts/ ./scripts/
 COPY VERSION ./VERSION
 COPY --from=frontend /app/dist ./static
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh

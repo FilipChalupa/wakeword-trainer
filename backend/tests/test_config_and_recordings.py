@@ -124,6 +124,18 @@ def test_project_export_import_roundtrip():
     client.delete(f"/api/recordings/positive/{up['id']}")
 
 
+def test_storage_overview_and_trash():
+    rec = client.post("/api/recordings", data={"kind": "positive"}, files={"file": ("a.wav", _wav_bytes(), "audio/wav")}).json()
+    info = client.get("/api/storage").json()
+    current = next(p for p in info["projects"] if p["id"] == config.current_project().id)
+    assert info["total"] > 0 and info["disk_free"] > 0 and current["recordings"] > 0
+    client.delete(f"/api/recordings/positive/{rec['id']}")
+    assert client.post("/api/storage/empty-trash").json()["freed"] > 0
+    assert client.get("/api/storage").json()["reclaimable"]["trash"] == 0
+    assert client.post(f"/api/recordings/positive/{rec['id']}/restore").status_code == 404
+    assert client.post("/api/storage/clear-cache").json()["freed"] >= 0
+
+
 def test_system_endpoint():
     info = client.get("/api/system").json()
     assert "gpu_available" in info and "tensorflow_cuda" in info and info["cpu_count"]

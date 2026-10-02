@@ -3,16 +3,16 @@ const { chromium } = require("playwright");
 const BASE = process.env.BASE_URL || "http://localhost:8000";
 
 (async () => {
-  const browser = await chromium.launch();
-  const page = await browser.newPage({ locale: "en-US" });
+  const browser = await chromium.launch({ args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream"] });
+  const page = await browser.newPage({ locale: "en-US", permissions: ["microphone"] });
   const errors = [];
   page.on("pageerror", (e) => errors.push(String(e)));
   await page.goto(BASE, { waitUntil: "load" });
   await page.waitForSelector(".MuiCard-root", { timeout: 20000 });
   const expected = {
-    Data: ["Wake word configuration", "Sample recording", "Negative datasets"],
+    Data: ["Wake word configuration", "Sample recording", "Negative datasets", "Storage use"],
     Training: ["Model training", "Trained models"],
-    Test: ["Test the model"],
+    Test: [],
     Deploy: ["Deploy to ESPHome"],
   };
   let cards = 0;
@@ -25,6 +25,19 @@ const BASE = process.env.BASE_URL || "http://localhost:8000";
     }
     cards += await page.locator(".MuiCard-root").count();
   }
+  // the step bar, the empty state of a project without a model (or the test card of one with a model)
+  if ((await page.locator(".MuiStepper-root .MuiStep-root").count()) !== 4) throw new Error("Step bar missing");
+  await page.getByRole("tab", { name: "Test" }).click();
+  await page.waitForTimeout(800);
+  const testText = await page.locator("body").innerText();
+  if (!testText.includes("No trained model yet") && !testText.includes("Test the model")) throw new Error("Test tab shows neither the empty state nor the test card");
+  // the microphone test dialog opens and closes
+  await page.getByRole("tab", { name: "Data" }).click();
+  await page.waitForTimeout(800);
+  await page.getByRole("button", { name: "Microphone test" }).first().click();
+  await page.waitForTimeout(800);
+  if (!(await page.getByRole("dialog").innerText()).includes("Microphone and room test")) throw new Error("Microphone test dialog did not open");
+  await page.keyboard.press("Escape");
   await page.goto(`${BASE}/contribute?token=invalid`, { waitUntil: "load" });
   await page.waitForTimeout(1500);
   const contributeText = await page.locator("body").innerText();

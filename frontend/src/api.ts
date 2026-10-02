@@ -151,6 +151,16 @@ export type MonitorItem = Recording & { job_id?: string };
 export type DeviceEvent = { at: string; device: string; wake_word: string; esphome_version: string; probability: number | null };
 export type PublicUrls = { token: string; manifest_url: string; model_url: string; device_event_url: string; has_model: boolean; job_id: string | null; target: TrainingTarget; slug: string; minimum_esphome_version: string; snippet: string };
 
+export type StorageInfo = {
+  total: number;
+  disk_free: number;
+  disk_total: number;
+  datasets: number;
+  feature_cache: number;
+  projects: { id: string; name: string; recordings: number; trash: number; jobs: number; runs: number; total: number }[];
+  reclaimable: { trash: number; cache: number };
+};
+
 export type Job = {
   job_id: string;
   wake_word: string;
@@ -236,6 +246,9 @@ export type Evaluation = {
 };
 
 export const api = {
+  storage: () => request<StorageInfo>("/api/storage"),
+  emptyTrash: () => request<{ freed: number }>("/api/storage/empty-trash", { method: "POST" }),
+  clearCache: () => request<{ freed: number }>("/api/storage/clear-cache", { method: "POST" }),
   getConfig: () => request<{ project: Project; defaults: TrainingParams }>("/api/config"),
   saveConfig: (update: Partial<Project>) =>
     request<{ project: Project; defaults: TrainingParams }>("/api/config", {

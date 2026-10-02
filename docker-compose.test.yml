@@ -1,0 +1,10 @@
+# A second, throw-away instance for end-to-end checks and screenshots: its own port and data folder, so the
+# instance you work in is never restarted or switched to another project.
+#   scripts/e2e.sh [--screenshots] [--keep]
+services:
+  app:
+    ports: !override
+      - "${TEST_PORT:-8100}:8000"
+    volumes: !override
+      - ./data-test:/data
+    restart: "no"

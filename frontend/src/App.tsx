@@ -4,6 +4,10 @@ import RecordVoiceOverIcon from "@mui/icons-material/RecordVoiceOver";
 import { AppThemeProvider } from "./theme";
 import { api, type Job, type Project, type ProjectSummary, type TrainingParams } from "./api";
 import { ProjectSelector } from "./components/ProjectSelector";
+import { StorageCard } from "./components/StorageCard";
+import { ProgressSteps, type TabId } from "./components/ProgressSteps";
+import { EmptyState } from "./components/EmptyState";
+import ModelTrainingIcon from "@mui/icons-material/ModelTraining";
 import { SystemChip } from "./components/SystemChip";
 import { DeployCard } from "./components/DeployCard";
 import { ContributePage } from "./ContributePage";
@@ -39,8 +43,7 @@ function Main() {
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const { state, log, connected } = useTrainingStream();
-  const TABS = ["data", "train", "test", "deploy"] as const;
-  type TabId = (typeof TABS)[number];
+  const TABS: TabId[] = ["data", "train", "test", "deploy"];
   const [tab, setTab] = useState<TabId>(() => {
     const hash = location.hash.replace("#", "") as TabId;
     return TABS.includes(hash) ? hash : "data";
@@ -138,14 +141,24 @@ function Main() {
         </Tabs>
       </AppBar>
 
-      <Container maxWidth="md" sx={{ py: 3 }}>
+      <Container maxWidth="md" sx={{ py: 2 }}>
         <Stack spacing={3}>
+          <ProgressSteps positive={counts.positive} recommended={30} jobs={jobs} state={state} tab={tab} onGo={selectTab} />
           {tab === "data" && project && defaults && <ConfigCard project={project} defaults={defaults} disabled={running} onSaved={setProject} onError={showError} />}
           {tab === "data" && project && <RecorderCard key={project.id} wakeWord={project.wake_word} maxSeconds={project.max_record_seconds} disabled={running} onCountsChange={setCounts} onError={showError} />}
           {tab === "data" && <DatasetsCard disabled={running} onError={showError} />}
+          {tab === "data" && <StorageCard version={counts.positive + counts.negative + jobs.length} disabled={running} onError={showError} />}
           {tab === "train" && <TrainingCard state={state} log={log} connected={connected} positiveCount={counts.positive} wakeWord={project?.wake_word ?? ""} target={project?.training.target} onError={showError} onFinished={loadJobs} />}
           {tab === "train" && <JobsCard jobs={jobs} disabled={running} onChanged={loadJobs} onError={showError} />}
-          {tab === "test" && <TestCard jobs={jobs} wakeWord={project?.wake_word ?? ""} disabled={running} onError={showError} onInfo={setInfo} />}
+          {(tab === "test" || tab === "deploy") && !jobs.some((j) => !!j.model_url) && (
+            <EmptyState
+              icon={<ModelTrainingIcon color="disabled" sx={{ fontSize: 48 }} />}
+              title={t("empty.noModelTitle")}
+              text={counts.positive > 0 ? t("empty.noModelTrain") : t("empty.noModelRecord")}
+              action={counts.positive > 0 ? { label: t("empty.goTrain"), onClick: () => selectTab("train") } : { label: t("empty.goRecord"), onClick: () => selectTab("data") }}
+            />
+          )}
+          {tab === "test" && jobs.some((j) => !!j.model_url) && <TestCard jobs={jobs} wakeWord={project?.wake_word ?? ""} disabled={running} onError={showError} onInfo={setInfo} />}
           {tab === "deploy" && project && <DeployCard projectId={project.id} jobsVersion={jobsVersion} onError={showError} />}
           <Typography variant="caption" color="text.secondary" textAlign="center">
             {t("app.footer")}

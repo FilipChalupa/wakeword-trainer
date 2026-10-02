@@ -18,6 +18,11 @@ live in the browser. Two targets:
   Series recording with countdown, playback after recording, play-all, microphone selection, quality checks
   (clipped start/end, clipping, too quiet, silence), mini waveforms, bulk delete with undo, drag & drop import,
   keyboard shortcuts (Space / R / Esc).
+- **Microphone and room test** – measures the room noise and your level before a session and tells you what to
+  change; the browser's automatic gain is off by default (it gives a short word a different level every time), the
+  click or key that stops a take is cut off, and a step bar shows where the project stands (samples, training,
+  test, deployment). A storage overview on the Data tab shows what the datasets, the feature cache, recordings and
+  runs take, and empties the trash or the cache.
 - **Negative data handled for you** – Google *mini_speech_commands* is downloaded automatically; synthetic noise and a long
   "ambient" recording for false-accept-per-hour estimation are generated; optional microWakeWord `dinner_party` sets.
 - **Training pipeline** – silence trimming + augmentation (audiomentations) → micro-frontend spectrograms → MixedNet training with the
@@ -152,6 +157,7 @@ Lower `probability_cutoff` if the word is hard to trigger; raise it on false act
 | GET | `/api/recordings?kind=positive\|negative` · `/api/recordings/contributors` | Recordings incl. waveform peaks, quality analysis, tags; per-contributor counts |
 | PUT | `/api/recordings/{kind}/{id}/tag` | Set the recording mode tag |
 | GET | `/api/system` | GPU / TensorFlow CUDA / CPU info, device used by the last training |
+| GET / POST | `/api/storage` · `/api/storage/empty-trash` · `/api/storage/clear-cache` | Storage use, and what can be freed |
 | GET / POST | `/api/projects/{id}/export` · `/api/projects/import` | Project ZIP export / import |
 | POST | `/api/recordings` | Upload (multipart `file`, `kind`) → `/data/positive_samples` or `/data/negative_samples` |
 | GET | `/api/recordings/{kind}/{id}` | Play a WAV |
@@ -177,6 +183,8 @@ backend/app        FastAPI: config, recordings, datasets, jobs (training manager
 backend/trainer    Training pipelines: run.py (microWakeWord), oww_train.py + oww_features.py (openWakeWord), audio helpers
 backend/tests      pytest suite (no TensorFlow needed: `pip install -r backend/requirements-dev.txt && cd backend && pytest`)
 frontend           Vite + React + TypeScript + Material UI
+scripts            e2e.sh runs the smoke test (and with --screenshots demo samples, a short training and the README
+                   screenshots) on a throw-away instance: port 8100, data in ./data-test, never the one you work in
 tests/e2e          Playwright smoke test used in CI against the Docker image, screenshots.js re-creates the README images
 docs/screenshots   README images
 data/              (created at runtime) negative_datasets/, features_cache/, projects/<id>/{positive_samples,negative_samples,jobs}
