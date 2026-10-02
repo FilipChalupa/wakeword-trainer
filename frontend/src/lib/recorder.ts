@@ -24,21 +24,25 @@ export class Recorder {
   private workletUrl: string | null = null;
 
   private deviceId: string | undefined;
+  private agc = false;
 
-  async init(deviceId?: string): Promise<void> {
-    if (this.stream && deviceId === this.deviceId) return;
+  /** ``agc``: the browser's automatic gain control. Off by default: it changes the gain between takes (a short
+   *  word after silence gets a different level every time) and lifts the room noise in quiet moments. */
+  async init(deviceId?: string, agc = this.agc): Promise<void> {
+    if (this.stream && deviceId === this.deviceId && agc === this.agc) return;
     if (this.stream) this.close();
     if (!navigator.mediaDevices?.getUserMedia) {
       throw new Error("mic_unsupported");
     }
     this.deviceId = deviceId;
+    this.agc = agc;
     this.stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         deviceId: deviceId ? { exact: deviceId } : undefined,
         channelCount: 1,
         echoCancellation: false,
         noiseSuppression: false,
-        autoGainControl: true,
+        autoGainControl: agc,
       },
     });
     this.context = new AudioContext();
@@ -63,12 +67,14 @@ export class Recorder {
 
   /**
    * Records until the speaker has finished: stops ~0.6 s after speech ends, at ``maxSeconds`` at the latest,
-   * or when ``stop()`` (returned via onStart) is called. Speech detection adapts to the noise floor measured at the start.
+   * or when ``stop()`` (returned via onStart) is called; the last ``stopTrimMs`` before a manual stop are dropped,
+   * because the key or click that stopped it is audible there. Speech detection adapts to the noise floor
+   * measured at the start.
    */
   async record(
     maxSeconds: number,
     onLevel?: LevelCallback,
-    options: { silenceMs?: number; minSeconds?: number; onStart?: (stop: () => void) => void } = {},
+    options: { silenceMs?: number; minSeconds?: number; stopTrimMs?: number; onStart?: (stop: () => void) => void } = {},
   ): Promise<{ wav: Blob; samples: Float32Array; sampleRate: number }> {
     await this.init(this.deviceId);
     const context = this.context!;
@@ -81,7 +87,7 @@ export class Recorder {
     let collected = 0;
     let speechSeen = false;
     let silentFrames = 0;
-    let noiseFloor = 0.003;
+    let noiseFloor = 0.001;
     let floorSamples = 0;
     let stopRequested = false;
     const started = performance.now();
@@ -101,14 +107,16 @@ export class Recorder {
         if (Math.abs(v) > peak) peak = Math.abs(v);
       }
       const rms = Math.sqrt(sum / data.length);
-      // noise floor from the first ~150 ms (before the speaker starts), then track quiet chunks slowly
-      if (floorSamples < context.sampleRate * 0.15) {
-        noiseFloor = Math.max(noiseFloor, rms);
+      // noise floor = the quietest chunk of the first 300 ms (the person may say the word at once), then it
+      // follows quiet chunks slowly
+      if (floorSamples < context.sampleRate * 0.3) {
+        noiseFloor = floorSamples === 0 ? Math.max(rms, 0.0005) : Math.max(Math.min(noiseFloor, rms), 0.0005);
         floorSamples += data.length;
       } else if (rms < noiseFloor * 1.5) {
         noiseFloor = noiseFloor * 0.98 + rms * 0.02;
       }
-      const speechThreshold = Math.max(0.012, noiseFloor * 3.5);
+      // hysteresis: speech starts only on a clear sound (a breath or a click stays below), softer sounds keep it going
+      const speechThreshold = Math.max(speechSeen ? 0.005 : 0.01, noiseFloor * (speechSeen ? 2.5 : 4));
       if (rms > speechThreshold) {
         speechSeen = true;
         silentFrames = 0;
@@ -154,7 +162,9 @@ export class Recorder {
     });
     cleanup();
 
-    const total = Math.min(collected, maxFrames);
+    // a manual stop comes from a key or a click, and the sound of it is on the tape: drop the last moment
+    const stopTrim = stopRequested ? Math.ceil(((options.stopTrimMs ?? 250) / 1000) * context.sampleRate) : 0;
+    const total = Math.max(Math.min(minFrames, collected), Math.min(collected, maxFrames) - stopTrim);
     const merged = new Float32Array(total);
     let offset = 0;
     for (const chunk of chunks) {

@@ -73,7 +73,7 @@ export type Recording = {
     rms_db?: number;
     speech_start?: number | null;
     speech_end?: number | null;
-    issues: QualityIssue[];
+    speech_db?: number | null; noise_db?: number | null; issues: QualityIssue[];
   };
 };
 

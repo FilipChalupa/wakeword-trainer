@@ -14,7 +14,7 @@ import soundfile as sf
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
-from .audio import normalize_wav, trim_edges
+from .audio import levels, normalize_wav, speech_bounds, trim_edges
 from .config import Project, current_project, slugify
 
 router = APIRouter(prefix="/api/recordings", tags=["recordings"])
@@ -65,28 +65,27 @@ def analyze(path: Path) -> dict:
     rms = float(np.sqrt(np.mean(audio ** 2))) if n else 0.0
     issues: list[str] = []
     speech_start = speech_end = None
+    speech_db = noise_db = None
     if n:
-        frame = max(1, sr // 100)
-        frames = audio[: (n // frame) * frame].reshape(-1, frame)
-        if frames.size:
-            frame_rms = np.sqrt((frames ** 2).mean(axis=1) + 1e-12)
-            threshold = max(frame_rms.max() * 10 ** (-30 / 20), 0.004)
-            active = np.where(frame_rms > threshold)[0]
-        else:
-            active = np.array([], dtype=int)
-        if active.size:
-            speech_start = float(active[0] * frame / sr)
-            speech_end = float((active[-1] + 1) * frame / sr)
+        bounds = speech_bounds(audio, sr, threshold_db=-30.0)
+        speech_db, noise_db = levels(audio, sr)
+        if bounds is not None:
+            speech_start = float(bounds[0] / sr)
+            speech_end = float(bounds[1] / sr)
+            # a cut-off take starts or ends with loud speech, so only the loud part (-20 dB) counts here;
+            # breaths and clicks near the edges must not trigger it
+            loud = speech_bounds(audio, sr, threshold_db=-20.0) or bounds
             edge = 0.08
-            if speech_start < edge:
+            if loud[0] / sr < edge:
                 issues.append("cut_start")
-            if duration - speech_end < edge:
+            if duration - loud[1] / sr < edge:
                 issues.append("cut_end")
             if speech_end - speech_start < 0.15:
                 issues.append("too_short")
         else:
             issues.append("silent")
-    if peak >= 0.985:
+    # one full-scale sample is just a normalised recording; real clipping flattens many samples
+    if n and float(np.mean(np.abs(audio) >= 0.985)) > 0.0005:
         issues.append("clipping")
     elif peak < 0.08 and "silent" not in issues:
         issues.append("too_quiet")
@@ -96,6 +95,8 @@ def analyze(path: Path) -> dict:
         "quality": {
             "peak": round(peak, 3),
             "rms_db": round(20 * np.log10(rms + 1e-9), 1),
+            "speech_db": speech_db,
+            "noise_db": noise_db,
             "speech_start": speech_start,
             "speech_end": speech_end,
             "issues": issues,

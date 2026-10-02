@@ -72,3 +72,42 @@ def test_trim_edges_keeps_context_and_ignores_short_silence():
     sf.write(buf, short, sr, subtype="PCM_16", format="WAV")
     out2, duration2 = trim_edges(buf.getvalue())
     assert out2 == buf.getvalue() and abs(duration2 - 0.9) < 0.01
+
+
+def test_quiet_take_over_room_noise_is_trimmed_and_not_flagged_as_cut(tmp_path):
+    import io
+
+    import numpy as np
+    import soundfile as sf
+
+    from app.audio import trim_edges
+    from app.recordings import analyze
+
+    sr = 16000
+    rng = np.random.default_rng(3)
+    audio = (0.004 * rng.standard_normal(int(3.0 * sr))).astype(np.float32)  # room noise around -48 dBFS
+    t = np.arange(int(0.8 * sr)) / sr
+    audio[int(1.2 * sr) : int(2.0 * sr)] += (0.3 * np.sin(2 * np.pi * 220 * t)).astype(np.float32)  # a quiet word
+    buf = io.BytesIO()
+    sf.write(buf, audio, sr, subtype="PCM_16", format="WAV")
+    trimmed, duration = trim_edges(buf.getvalue())
+    assert 1.2 <= duration <= 1.4  # 0.8 s of speech + 0.25 s of context on both sides, not the whole 3 s
+    path = tmp_path / "quiet.wav"
+    path.write_bytes(trimmed)
+    quality = analyze(path)["quality"]
+    assert quality["issues"] == [] and quality["speech_db"] is not None and quality["noise_db"] < -40
+
+
+def test_single_full_scale_sample_is_not_clipping(tmp_path):
+    import numpy as np
+    import soundfile as sf
+
+    from app.recordings import analyze
+
+    sr = 16000
+    t = np.arange(sr) / sr
+    audio = np.concatenate([np.zeros(sr // 4, np.float32), (0.5 * np.sin(2 * np.pi * 300 * t)).astype(np.float32), np.zeros(sr // 4, np.float32)])
+    audio[sr // 2] = 1.0
+    path = tmp_path / "peak.wav"
+    sf.write(str(path), audio, sr, subtype="PCM_16")
+    assert "clipping" not in analyze(path)["quality"]["issues"]

@@ -37,6 +37,9 @@ import { api, TAGS, type Recording, type RecordingsClient, type Tag } from "../a
 import { RecordingList, Waveform } from "./RecordingList";
 import { errorText, useI18n, type TKey } from "../i18n";
 import { Recorder, waveformPeaks } from "../lib/recorder";
+import { LevelMeter } from "./LevelMeter";
+import { MicCheckDialog } from "./MicCheckDialog";
+import SettingsVoiceIcon from "@mui/icons-material/SettingsVoice";
 
 type Kind = "positive" | "negative";
 const RECOMMENDED = 30;
@@ -57,6 +60,22 @@ type Props = {
 
 type Phase = "idle" | "prepare" | "countdown" | "recording" | "uploading";
 
+const PREF_PREFIX = "wakeword-trainer.recorder.";
+function readPref(key: string): string | null {
+  try {
+    return localStorage.getItem(PREF_PREFIX + key);
+  } catch {
+    return null;
+  }
+}
+function writePref(key: string, value: string): void {
+  try {
+    localStorage.setItem(PREF_PREFIX + key, value);
+  } catch {
+    /* private mode */
+  }
+}
+
 export function RecorderCard({ wakeWord, maxSeconds, disabled, onCountsChange, onError, client = api, compact = false, title }: Props) {
   const theme = useTheme();
   const { t } = useI18n();
@@ -68,14 +87,26 @@ export function RecorderCard({ wakeWord, maxSeconds, disabled, onCountsChange, o
   const [countdown, setCountdown] = useState(0);
   const [elapsed, setElapsed] = useState(0);
   const [level, setLevel] = useState(0);
+  const [peak, setPeak] = useState(0);
   const [lastPeaks, setLastPeaks] = useState<number[] | null>(null);
   const [playing, setPlaying] = useState<{ id: string; progress: number } | null>(null);
   const [playAll, setPlayAll] = useState(false);
-  const [autoPlay, setAutoPlay] = useState(true);
+  // per-browser preferences that survive a reload
+  const [autoPlay, setAutoPlay] = useState(() => readPref("autoplay") !== "0");
+  const [agc, setAgc] = useState(() => readPref("agc") === "1");
+  const [micCheckOpen, setMicCheckOpen] = useState(false);
+  // a new session suggests the microphone test first, once per browser tab
+  const [micChecked, setMicChecked] = useState(() => {
+    try {
+      return sessionStorage.getItem("wakeword-trainer.mic-checked") === "1";
+    } catch {
+      return false;
+    }
+  });
   const [seriesSize, setSeriesSize] = useState(10);
   const [series, setSeries] = useState<{ done: number; total: number } | null>(null);
   const [devices, setDevices] = useState<{ deviceId: string; label: string }[]>([]);
-  const [deviceId, setDeviceId] = useState<string>("");
+  const [deviceId, setDeviceId] = useState<string>(() => readPref("mic") ?? "");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [undo, setUndo] = useState<{ kind: Kind; ids: string[] } | null>(null);
   const [importing, setImporting] = useState<{ done: number; total: number } | null>(null);
@@ -106,6 +137,32 @@ export function RecorderCard({ wakeWord, maxSeconds, disabled, onCountsChange, o
     const recorder = recorderRef.current;
     return () => recorder.close();
   }, [refresh]);
+
+  useEffect(() => writePref("autoplay", autoPlay ? "1" : "0"), [autoPlay]);
+  useEffect(() => writePref("agc", agc ? "1" : "0"), [agc]);
+  useEffect(() => writePref("mic", deviceId), [deviceId]);
+  // a remembered microphone that is no longer plugged in falls back to the default
+  useEffect(() => {
+    if (deviceId && devices.length && !devices.some((d) => d.deviceId === deviceId)) setDeviceId("");
+  }, [devices, deviceId]);
+  useEffect(() => {
+    try {
+      if (micChecked) sessionStorage.setItem("wakeword-trainer.mic-checked", "1");
+    } catch {
+      /* private mode */
+    }
+  }, [micChecked]);
+  // closing the tab in the middle of a take would lose it without a word
+  useEffect(() => {
+    const guard = (e: BeforeUnloadEvent) => {
+      if (phase === "recording" || phase === "uploading") {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", guard);
+    return () => window.removeEventListener("beforeunload", guard);
+  }, [phase]);
 
   // ----- playback ---------------------------------------------------------
   const stopPlayback = useCallback(() => {
@@ -171,7 +228,7 @@ export function RecorderCard({ wakeWord, maxSeconds, disabled, onCountsChange, o
     async (targetKind: Kind, doCountdown: boolean) => {
       setLastPeaks(null);
       setPhase("prepare");
-      await recorderRef.current.init(deviceId || undefined);
+      await recorderRef.current.init(deviceId || undefined, agc);
       if (devices.length === 0) Recorder.listDevices().then(setDevices).catch(() => undefined);
       if (doCountdown) {
         setPhase("countdown");
@@ -187,21 +244,23 @@ export function RecorderCard({ wakeWord, maxSeconds, disabled, onCountsChange, o
       setElapsed(0);
       const { wav, samples } = await recorderRef.current.record(
         maxSeconds,
-        ({ rms, elapsed }) => {
+        ({ rms, peak, elapsed }) => {
           setLevel(Math.min(1, rms * 6));
+          setPeak(peak);
           setElapsed(elapsed);
         },
         { onStart: (stop) => (stopRecordingRef.current = stop) },
       );
       stopRecordingRef.current = null;
       setLevel(0);
+      setPeak(0);
       setLastPeaks(waveformPeaks(samples));
       setPhase("uploading");
       const saved = await client.uploadRecording(targetKind, wav, "sample.wav", tag === "normal" ? null : tag);
       await refresh();
       return saved;
     },
-    [deviceId, devices.length, maxSeconds, refresh, client, tag],
+    [agc, deviceId, devices.length, maxSeconds, refresh, client, tag],
   );
 
   const recordSingle = useCallback(async () => {
@@ -337,6 +396,8 @@ export function RecorderCard({ wakeWord, maxSeconds, disabled, onCountsChange, o
   const problems = useMemo(() => list.filter((r) => r.quality.issues.length > 0).length, [list]);
   const hint = VARIATION_HINTS[(kind === "positive" ? positiveCount : items.negative.length) % VARIATION_HINTS.length];
   const busy = phase !== "idle";
+  const lastTake = Math.max(0, ...[...items.positive, ...items.negative].map((r) => new Date(r.created).getTime() || 0));
+  const sessionStart = Date.now() - lastTake > 2 * 60 * 60 * 1000;
 
   const toggleSelected = (id: string) => {
     const next = new Set(selected);
@@ -373,6 +434,24 @@ export function RecorderCard({ wakeWord, maxSeconds, disabled, onCountsChange, o
       />
       <CardContent>
         <Stack spacing={2}>
+          {sessionStart && !micChecked && (
+            <Alert
+              severity="info"
+              variant="outlined"
+              action={
+                <Stack direction="row" spacing={1}>
+                  <Button size="small" variant="contained" startIcon={<SettingsVoiceIcon />} onClick={() => setMicCheckOpen(true)} disabled={disabled || busy}>
+                    {t("rec.micCheck")}
+                  </Button>
+                  <Button size="small" onClick={() => setMicChecked(true)}>
+                    {t("rec.sessionSkip")}
+                  </Button>
+                </Stack>
+              }
+            >
+              {t("rec.sessionStart")}
+            </Alert>
+          )}
           <Box>
             <LinearProgress variant="determinate" value={progress} sx={{ height: 8, borderRadius: 4 }} />
             <Typography variant="caption" color="text.secondary">
@@ -430,7 +509,9 @@ export function RecorderCard({ wakeWord, maxSeconds, disabled, onCountsChange, o
               <Typography variant="body2" color="text.secondary" gutterBottom>
                 {series ? t("rec.seriesStatus", { done: series.done, total: series.total }) : t("rec.instructions", { s: maxSeconds.toFixed(0) })}
               </Typography>
-              <LinearProgress variant="determinate" value={level * 100} color={level > 0.9 ? "error" : "success"} sx={{ height: 10, borderRadius: 5, mb: 1 }} />
+              <Box sx={{ mb: 1 }}>
+                <LevelMeter level={level} peak={peak} />
+              </Box>
               {lastPeaks && <Waveform peaks={lastPeaks} color={theme.palette.primary.main} height={40} />}
             </Box>
           </Stack>
@@ -470,6 +551,12 @@ export function RecorderCard({ wakeWord, maxSeconds, disabled, onCountsChange, o
               </Button>
             </Stack>
             <FormControlLabel control={<Switch checked={autoPlay} onChange={(e) => setAutoPlay(e.target.checked)} />} label={t("rec.autoplay")} />
+            <Tooltip title={t("rec.agcHint")}>
+              <FormControlLabel control={<Switch checked={agc} onChange={(e) => setAgc(e.target.checked)} disabled={busy} />} label={t("rec.agc")} />
+            </Tooltip>
+            <Button variant="text" startIcon={<SettingsVoiceIcon />} onClick={() => setMicCheckOpen(true)} disabled={disabled || busy}>
+              {t("rec.micCheck")}
+            </Button>
             <TextField
               select
               size="small"
@@ -529,6 +616,17 @@ export function RecorderCard({ wakeWord, maxSeconds, disabled, onCountsChange, o
           />
         </Stack>
       </CardContent>
+      <MicCheckDialog
+        open={micCheckOpen}
+        recorder={recorderRef.current}
+        deviceId={deviceId}
+        agc={agc}
+        sentence={wakeWord}
+        recordings={items.positive}
+        onClose={() => setMicCheckOpen(false)}
+        onDone={() => setMicChecked(true)}
+        onError={onError}
+      />
       <Snackbar
         open={!!undo}
         autoHideDuration={8000}
