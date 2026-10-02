@@ -38,12 +38,24 @@ const BASE = process.env.BASE_URL || "http://localhost:8000";
   await page.waitForTimeout(800);
   if (!(await page.getByRole("dialog").innerText()).includes("Microphone and room test")) throw new Error("Microphone test dialog did not open");
   await page.keyboard.press("Escape");
+  // a take whose upload fails waits in the browser and can be uploaded once the server answers again
+  await page.route("**/api/recordings", (route) => (route.request().method() === "POST" ? route.abort() : route.continue()));
+  await page.keyboard.press("Space");
+  await page.getByText("Recording…").waitFor({ timeout: 10000 });
+  await page.waitForTimeout(1500);
+  if (await page.getByText("Recording…").isVisible().catch(() => false)) await page.keyboard.press("Space");
+  await page.getByText("waiting in this browser: 1").waitFor({ timeout: 15000 });
+  await page.reload({ waitUntil: "load" }); // the take survives a reload
+  await page.getByText("waiting in this browser: 1").waitFor({ timeout: 15000 });
+  await page.unroute("**/api/recordings");
+  await page.getByRole("button", { name: "Upload now" }).click();
+  await page.getByText("waiting in this browser").waitFor({ state: "hidden", timeout: 15000 });
   await page.goto(`${BASE}/contribute?token=invalid`, { waitUntil: "load" });
   await page.waitForTimeout(1500);
   const contributeText = await page.locator("body").innerText();
   if (!/not valid/i.test(contributeText)) throw new Error("Contributor page did not reject an invalid token");
   if (errors.length) throw new Error(`Page errors: ${errors.join("; ")}`);
-  console.log(`OK: ${cards} cards rendered across 4 tabs, contributor page guarded`);
+  console.log(`OK: ${cards} cards rendered across 4 tabs, a failed upload is kept and recovered, contributor page guarded`);
   await browser.close();
 })().catch((e) => {
   console.error(e);

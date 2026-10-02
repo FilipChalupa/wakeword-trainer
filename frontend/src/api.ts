@@ -191,9 +191,11 @@ export type RecordingsClient = {
 
 export class ApiError extends Error {
   code: string | null;
-  constructor(message: string, code: string | null = null) {
+  status: number;
+  constructor(message: string, code: string | null = null, status = 0) {
     super(message);
     this.code = code;
+    this.status = status;
   }
 }
 
@@ -209,9 +211,9 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
     }
     if (detail && typeof detail === "object" && "code" in (detail as object)) {
       const d = detail as { code: string; message?: string };
-      throw new ApiError(d.message ?? d.code, d.code);
+      throw new ApiError(d.message ?? d.code, d.code, res.status);
     }
-    throw new ApiError(typeof detail === "string" ? detail : JSON.stringify(detail));
+    throw new ApiError(typeof detail === "string" ? detail : JSON.stringify(detail), null, res.status);
   }
   return res.json() as Promise<T>;
 }

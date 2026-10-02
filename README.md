@@ -17,7 +17,9 @@ live in the browser. Two targets:
   speaking (or on click, 4 s at most), leading/trailing silence is trimmed on upload; WAV 16 kHz / mono / 16-bit PCM.
   Series recording with countdown, playback after recording, play-all, microphone selection, quality checks
   (clipped start/end, clipping, too quiet, silence), mini waveforms, bulk delete with undo, drag & drop import,
-  keyboard shortcuts (Space / R / Esc).
+  keyboard shortcuts (Space / R / Esc). The screen stays on while recording, and every take is kept in the browser
+  until the server has it: after a lost connection or a restarted server the card offers to upload what is waiting
+  (on the contributor page too).
 - **Microphone and room test** – measures the room noise and your level before a session and tells you what to
   change; the browser's automatic gain is off by default (it gives a short word a different level every time), the
   click or key that stops a take is cut off, and a step bar shows where the project stands (samples, training,

@@ -92,6 +92,7 @@ export function ContributePage() {
                 maxSeconds={info.max_record_seconds}
                 disabled={false}
                 client={client}
+                storeKey={`contribute:${token}`}
                 compact
                 title={`${t("contrib.title")} · ${name}`}
                 onCountsChange={(c) => setCount(c.positive)}

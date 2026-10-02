@@ -39,6 +39,8 @@ import { errorText, useI18n, type TKey } from "../i18n";
 import { Recorder, waveformPeaks } from "../lib/recorder";
 import { LevelMeter } from "./LevelMeter";
 import { MicCheckDialog } from "./MicCheckDialog";
+import { discardTakes, flushTakes, uploadKept, waitingTakes, wasKept } from "../lib/pendingTakes";
+import { useScreenAwake } from "../lib/wakeLock";
 import SettingsVoiceIcon from "@mui/icons-material/SettingsVoice";
 
 type Kind = "positive" | "negative";
@@ -53,6 +55,8 @@ type Props = {
   onError: (message: string) => void;
   /** API used for recordings – the contributor page passes a token based client. */
   client?: RecordingsClient;
+  /** Which project (or contributor link) takes kept in the browser belong to. */
+  storeKey: string;
   /** Contributor mode: no import, no bulk selection, simplified header. */
   compact?: boolean;
   title?: string;
@@ -76,7 +80,7 @@ function writePref(key: string, value: string): void {
   }
 }
 
-export function RecorderCard({ wakeWord, maxSeconds, disabled, onCountsChange, onError, client = api, compact = false, title }: Props) {
+export function RecorderCard({ wakeWord, maxSeconds, disabled, onCountsChange, onError, client = api, storeKey, compact = false, title }: Props) {
   const theme = useTheme();
   const { t } = useI18n();
   const fail = useCallback((e: unknown) => onError(e instanceof Error && e.message === "mic_unsupported" ? t("rec.micUnsupported") : errorText(t, e)), [onError, t]);
@@ -120,6 +124,16 @@ export function RecorderCard({ wakeWord, maxSeconds, disabled, onCountsChange, o
   const busyRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const stopRecordingRef = useRef<(() => void) | null>(null);
+
+  // takes an earlier upload could not deliver (connection lost, server restarted, tab closed) wait in the browser
+  const [waiting, setWaiting] = useState(0);
+  const [flushing, setFlushing] = useState(false);
+  const loadWaiting = useCallback(() => {
+    waitingTakes(storeKey)
+      .then((list) => setWaiting(list.length))
+      .catch(() => undefined);
+  }, [storeKey]);
+  useEffect(loadWaiting, [loadWaiting]);
 
   const refresh = useCallback(async () => {
     try {
@@ -256,11 +270,11 @@ export function RecorderCard({ wakeWord, maxSeconds, disabled, onCountsChange, o
       setPeak(0);
       setLastPeaks(waveformPeaks(samples));
       setPhase("uploading");
-      const saved = await client.uploadRecording(targetKind, wav, "sample.wav", tag === "normal" ? null : tag);
+      const saved = await uploadKept(client, storeKey, targetKind, wav, tag === "normal" ? null : tag);
       await refresh();
       return saved;
     },
-    [agc, deviceId, devices.length, maxSeconds, refresh, client, tag],
+    [agc, deviceId, devices.length, maxSeconds, refresh, client, storeKey, tag],
   );
 
   const recordSingle = useCallback(async () => {
@@ -272,24 +286,21 @@ export function RecorderCard({ wakeWord, maxSeconds, disabled, onCountsChange, o
       setPhase("idle");
       if (saved && autoPlay) await playOne(saved);
     } catch (e) {
-      fail(e);
+      if (wasKept(e)) {
+        onError(t("pending.offline"));
+        loadWaiting();
+      } else fail(e);
     } finally {
       setPhase("idle");
       busyRef.current = false;
     }
-  }, [autoPlay, captureOne, disabled, kind, fail, playOne, stopPlayback]);
+  }, [autoPlay, captureOne, disabled, kind, fail, loadWaiting, onError, playOne, stopPlayback, t]);
 
   const recordSeries = async () => {
     if (busyRef.current || disabled) return;
     busyRef.current = true;
     stopSeriesRef.current = false;
     stopPlayback();
-    let wakeLock: { release: () => Promise<void> } | null = null;
-    try {
-      wakeLock = (await (navigator as Navigator & { wakeLock?: { request: (t: string) => Promise<{ release: () => Promise<void> }> } }).wakeLock?.request("screen")) ?? null;
-    } catch {
-      wakeLock = null;
-    }
     const total = Math.max(1, seriesSize);
     setSeries({ done: 0, total });
     try {
@@ -303,12 +314,14 @@ export function RecorderCard({ wakeWord, maxSeconds, disabled, onCountsChange, o
         else await new Promise((r) => setTimeout(r, 400));
       }
     } catch (e) {
-      fail(e);
+      if (wasKept(e)) {
+        onError(t("pending.offline"));
+        loadWaiting();
+      } else fail(e);
     } finally {
       setSeries(null);
       setPhase("idle");
       busyRef.current = false;
-      wakeLock?.release().catch(() => undefined);
     }
   };
 
@@ -398,6 +411,24 @@ export function RecorderCard({ wakeWord, maxSeconds, disabled, onCountsChange, o
   const busy = phase !== "idle";
   const lastTake = Math.max(0, ...[...items.positive, ...items.negative].map((r) => new Date(r.created).getTime() || 0));
   const sessionStart = Date.now() - lastTake > 2 * 60 * 60 * 1000;
+  // a phone would lock its screen in the middle of a series
+  useScreenAwake(phase !== "idle" || series !== null);
+
+  const uploadWaiting = async () => {
+    setFlushing(true);
+    try {
+      const res = await flushTakes(client, storeKey);
+      if (res.left > 0) onError(t("pending.stillOffline", { n: res.left }));
+      await refresh();
+    } finally {
+      setFlushing(false);
+      loadWaiting();
+    }
+  };
+  const discardWaiting = async () => {
+    await discardTakes(storeKey);
+    loadWaiting();
+  };
 
   const toggleSelected = (id: string) => {
     const next = new Set(selected);
@@ -434,6 +465,23 @@ export function RecorderCard({ wakeWord, maxSeconds, disabled, onCountsChange, o
       />
       <CardContent>
         <Stack spacing={2}>
+          {waiting > 0 && (
+            <Alert
+              severity="warning"
+              action={
+                <Stack direction="row" spacing={1}>
+                  <Button size="small" variant="contained" color="warning" onClick={uploadWaiting} disabled={flushing || disabled || phase !== "idle"}>
+                    {t("pending.upload")}
+                  </Button>
+                  <Button size="small" color="inherit" onClick={discardWaiting} disabled={flushing}>
+                    {t("pending.discard")}
+                  </Button>
+                </Stack>
+              }
+            >
+              {t("pending.waiting", { n: waiting })}
+            </Alert>
+          )}
           {sessionStart && !micChecked && (
             <Alert
               severity="info"
