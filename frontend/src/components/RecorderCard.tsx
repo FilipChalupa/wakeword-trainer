@@ -64,6 +64,9 @@ type Props = {
 
 type Phase = "idle" | "prepare" | "countdown" | "recording" | "uploading";
 
+/** An alert with buttons on its right: the buttons sit in the middle of the text, not at its top. */
+const ACTION_ALERT = { alignItems: "center", "& .MuiAlert-action": { pt: 0, alignItems: "center" } } as const;
+
 const PREF_PREFIX = "wakeword-trainer.recorder.";
 function readPref(key: string): string | null {
   try {
@@ -468,8 +471,9 @@ export function RecorderCard({ wakeWord, maxSeconds, disabled, onCountsChange, o
           {waiting > 0 && (
             <Alert
               severity="warning"
+              sx={ACTION_ALERT}
               action={
-                <Stack direction="row" spacing={1}>
+                <Stack direction="row" spacing={1} alignItems="center" sx={{ whiteSpace: "nowrap" }}>
                   <Button size="small" variant="contained" color="warning" onClick={uploadWaiting} disabled={flushing || disabled || phase !== "idle"}>
                     {t("pending.upload")}
                   </Button>
@@ -486,8 +490,9 @@ export function RecorderCard({ wakeWord, maxSeconds, disabled, onCountsChange, o
             <Alert
               severity="info"
               variant="outlined"
+              sx={ACTION_ALERT}
               action={
-                <Stack direction="row" spacing={1}>
+                <Stack direction="row" spacing={1} alignItems="center" sx={{ whiteSpace: "nowrap" }}>
                   <Button size="small" variant="contained" startIcon={<SettingsVoiceIcon />} onClick={() => setMicCheckOpen(true)} disabled={disabled || busy}>
                     {t("rec.micCheck")}
                   </Button>
