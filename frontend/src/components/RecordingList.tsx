@@ -4,6 +4,7 @@ import StopIcon from "@mui/icons-material/Stop";
 import DeleteIcon from "@mui/icons-material/Delete";
 import type { Recording } from "../api";
 import { useI18n, type TKey } from "../i18n";
+import { Scrub } from "./Scrub";
 
 type Props = {
   items: Recording[];
@@ -14,12 +15,14 @@ type Props = {
   playingProgress?: number;
   onToggleSelect: (id: string) => void;
   onTogglePlay: (rec: Recording) => void;
+  /** play from this point of the take (0..1), like any player's progress bar */
+  onSeek: (rec: Recording, ratio: number) => void;
   onDelete: (rec: Recording) => void;
   onClearReview: (rec: Recording) => void;
 };
 
 /** Newest-first list of recordings with mini waveforms, quality/tag/contributor chips and actions. */
-export function RecordingList({ items, compact, disabled, selected, playingId, playingProgress, onToggleSelect, onTogglePlay, onDelete, onClearReview }: Props) {
+export function RecordingList({ items, compact, disabled, selected, playingId, playingProgress, onToggleSelect, onTogglePlay, onSeek, onDelete, onClearReview }: Props) {
   const { t } = useI18n();
   const theme = useTheme();
   const list = items;
@@ -50,9 +53,9 @@ export function RecordingList({ items, compact, disabled, selected, playingId, p
                   <IconButton size="small" onClick={() => onTogglePlay(rec)} color={isPlaying ? "primary" : "default"}>
                     {isPlaying ? <StopIcon /> : <PlayArrowIcon />}
                   </IconButton>
-                  <Box sx={{ width: 140, cursor: "pointer" }} onClick={() => onTogglePlay(rec)}>
+                  <Scrub duration={rec.duration} onSeek={(ratio) => onSeek(rec, ratio)} ariaValueNow={isPlaying ? Math.round((playingProgress ?? 0) * 100) : 0} sx={{ width: 140, flexShrink: 0 }}>
                     <Waveform peaks={rec.peaks} color={isPlaying ? theme.palette.primary.main : theme.palette.text.secondary} height={28} progress={isPlaying ? playingProgress : undefined} />
-                  </Box>
+                  </Scrub>
                   <Box sx={{ flex: 1, minWidth: 0 }}>
                     <Typography variant="body2" noWrap>
                       #{list.length - idx} · {rec.duration.toFixed(2)} s · {new Date(rec.created).toLocaleTimeString()}

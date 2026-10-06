@@ -182,6 +182,15 @@ export function RecorderCard({ wakeWord, maxSeconds, disabled, onCountsChange, o
   }, [phase]);
 
   // ----- playback ---------------------------------------------------------
+  /** A click on a waveform: moves inside the take that plays, or starts another one from that point. */
+  const seekTo = (rec: Recording, ratio: number) => {
+    const audio = audioRef.current;
+    if (playing?.id === rec.id && audio && audio.duration) {
+      audio.currentTime = ratio * audio.duration;
+      setPlaying({ id: rec.id, progress: ratio });
+    } else void playOne(rec, ratio);
+  };
+
   const stopPlayback = useCallback(() => {
     if (audioRef.current) {
       audioRef.current.onended = null;
@@ -193,12 +202,13 @@ export function RecorderCard({ wakeWord, maxSeconds, disabled, onCountsChange, o
   }, []);
 
   const playOne = useCallback(
-    (rec: Recording) =>
+    (rec: Recording, from = 0) =>
       new Promise<void>((resolve) => {
         stopPlayback();
         const audio = new Audio(rec.url);
         audioRef.current = audio;
-        setPlaying({ id: rec.id, progress: 0 });
+        setPlaying({ id: rec.id, progress: from });
+        if (from > 0) audio.onloadedmetadata = () => (audio.currentTime = from * audio.duration);
         audio.ontimeupdate = () => setPlaying({ id: rec.id, progress: audio.duration ? audio.currentTime / audio.duration : 0 });
         audio.onended = () => {
           setPlaying(null);
@@ -664,6 +674,7 @@ export function RecorderCard({ wakeWord, maxSeconds, disabled, onCountsChange, o
             playingProgress={playing?.progress}
             onToggleSelect={toggleSelected}
             onTogglePlay={togglePlay}
+            onSeek={seekTo}
             onDelete={(rec) => removeMany(rec.kind, [rec.id])}
             onClearReview={clearReview}
           />
