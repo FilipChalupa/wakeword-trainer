@@ -1,58 +1,38 @@
 import { useEffect, useState } from "react";
-import { Accordion, AccordionDetails, AccordionSummary, Alert, Box, Button, Card, CardContent, CardHeader, Chip, Divider, FormControlLabel, MenuItem, Stack, Switch, TextField, Typography } from "@mui/material";
+import { Alert, Box, Button, Card, CardContent, CardHeader, Chip, Divider, Stack, TextField, Typography } from "@mui/material";
 import ShareIcon from "@mui/icons-material/Share";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import LinkOffIcon from "@mui/icons-material/LinkOff";
-import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
-import TuneIcon from "@mui/icons-material/Tune";
+import RecordVoiceOverIcon from "@mui/icons-material/RecordVoiceOver";
 import SaveIcon from "@mui/icons-material/Save";
 import QrCode2Icon from "@mui/icons-material/QrCode2";
-import { api, type Contributor, type Project, type TrainingParams } from "../api";
-import { errorText, useI18n, type TKey } from "../i18n";
+import { api, type Contributor, type Project } from "../api";
+import { errorText, useI18n } from "../i18n";
 
 type Props = {
   project: Project;
-  defaults: TrainingParams;
   disabled: boolean;
   onSaved: (project: Project) => void;
   onError: (message: string) => void;
 };
 
-const FIELDS: { key: keyof TrainingParams; step?: number; min?: number }[] = [
-  { key: "training_steps", step: 100, min: 100 },
-  { key: "learning_rate", step: 0.0001, min: 0.00001 },
-  { key: "batch_size", step: 16, min: 16 },
-  { key: "eval_step_interval", step: 50, min: 25 },
-  { key: "augmentations_per_sample", step: 5, min: 1 },
-  { key: "clip_duration_ms", step: 100, min: 800 },
-  { key: "negative_class_weight", step: 1, min: 1 },
-];
-
-export function ConfigCard({ project, defaults, disabled, onSaved, onError }: Props) {
+export function ConfigCard({ project, disabled, onSaved, onError }: Props) {
   const { t } = useI18n();
   const [wakeWord, setWakeWord] = useState(project.wake_word);
-  const [training, setTraining] = useState<TrainingParams>(project.training);
-  const [webhook, setWebhook] = useState(project.webhook_url ?? "");
   const [target, setTarget] = useState(project.contributor_target ?? 10);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     setWakeWord(project.wake_word);
-    setTraining(project.training);
-    setWebhook(project.webhook_url ?? "");
     setTarget(project.contributor_target ?? 10);
   }, [project]);
 
-  const dirty =
-    wakeWord !== project.wake_word ||
-    webhook !== (project.webhook_url ?? "") ||
-    target !== (project.contributor_target ?? 10) ||
-    JSON.stringify(training) !== JSON.stringify(project.training);
+  const dirty = wakeWord !== project.wake_word || target !== (project.contributor_target ?? 10);
 
   const save = async () => {
     setSaving(true);
     try {
-      const res = await api.saveConfig({ wake_word: wakeWord, training, webhook_url: webhook, contributor_target: target });
+      const res = await api.saveConfig({ wake_word: wakeWord, contributor_target: target });
       onSaved(res.project);
     } catch (e) {
       onError(errorText(t, e));
@@ -63,64 +43,22 @@ export function ConfigCard({ project, defaults, disabled, onSaved, onError }: Pr
 
   return (
     <Card>
-      <CardHeader avatar={<TuneIcon color="primary" />} title={t("config.title")} subheader={t("config.subtitle")} />
+      <CardHeader avatar={<RecordVoiceOverIcon color="primary" />} title={t("config.title")} subheader={t("config.subtitle")} />
       <CardContent>
         <Stack spacing={2}>
           <TextField label={t("config.wakeWord")} value={wakeWord} onChange={(e) => setWakeWord(e.target.value)} placeholder="chaloupko" fullWidth disabled={disabled} helperText={t("config.wakeWordHelp")} />
 
           <TextField
-            select
-            label={t("config.platform")}
-            value={training.target ?? "esphome"}
-            onChange={(e) => setTraining({ ...training, target: e.target.value as TrainingParams["target"] })}
+            size="small"
+            type="number"
+            label={t("config.target")}
+            value={target}
+            onChange={(e) => setTarget(Math.max(1, Number(e.target.value)))}
+            inputProps={{ min: 1 }}
             disabled={disabled}
-            helperText={t("config.platformHelp")}
-          >
-            <MenuItem value="esphome">{t("target.esphome")}</MenuItem>
-            <MenuItem value="wyoming">{t("target.wyoming")}</MenuItem>
-          </TextField>
-
-          <Accordion disableGutters variant="outlined">
-            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-              <Typography variant="subtitle2">{t("config.trainingParams")}</Typography>
-            </AccordionSummary>
-            <AccordionDetails>
-              <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr", md: "1fr 1fr 1fr" } }}>
-                {FIELDS.map((f) => (
-                  <TextField
-                    key={f.key}
-                    type="number"
-                    label={t(`config.f.${f.key}` as TKey)}
-                    value={training[f.key]}
-                    onChange={(e) => setTraining({ ...training, [f.key]: Number(e.target.value) })}
-                    inputProps={{ step: f.step, min: f.min }}
-                    helperText={t(`config.h.${f.key}` as TKey)}
-                    disabled={disabled}
-                    size="small"
-                  />
-                ))}
-              </Box>
-              <FormControlLabel
-                sx={{ mt: 1 }}
-                control={<Switch checked={!!training.hard_negatives} onChange={(e) => setTraining({ ...training, hard_negatives: e.target.checked })} disabled={disabled} />}
-                label={
-                  <Box>
-                    <Typography variant="body2">{t("config.f.hard_negatives")}</Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {t("config.h.hard_negatives")}
-                    </Typography>
-                  </Box>
-                }
-              />
-              <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr", sm: "2fr 1fr" }, mt: 2 }}>
-                <TextField size="small" label={t("config.webhook")} value={webhook} onChange={(e) => setWebhook(e.target.value)} helperText={t("config.webhookHelp")} disabled={disabled} placeholder="https://homeassistant.local:8123/api/webhook/…" />
-                <TextField size="small" type="number" label={t("config.target")} value={target} onChange={(e) => setTarget(Math.max(1, Number(e.target.value)))} inputProps={{ min: 1 }} disabled={disabled} />
-              </Box>
-              <Button size="small" sx={{ mt: 1 }} onClick={() => setTraining({ ...defaults })} disabled={disabled}>
-                {t("config.resetDefaults")}
-              </Button>
-            </AccordionDetails>
-          </Accordion>
+            helperText={t("config.targetHelp")}
+            sx={{ maxWidth: 320 }}
+          />
 
           <Stack direction="row" spacing={2} alignItems="center">
             <Button variant="contained" startIcon={<SaveIcon />} onClick={save} disabled={disabled || saving || !dirty || !wakeWord.trim()}>

@@ -10,8 +10,8 @@ const BASE = process.env.BASE_URL || "http://localhost:8000";
   await page.goto(BASE, { waitUntil: "load" });
   await page.waitForSelector(".MuiCard-root", { timeout: 20000 });
   const expected = {
-    Data: ["Wake word configuration", "Sample recording", "Negative datasets", "Storage use"],
-    Training: ["Model training", "Trained models"],
+    Data: ["Wake word", "Sample recording", "Negative datasets", "Storage use"],
+    Training: ["Model training", "Training settings", "Trained models"],
     Test: [],
     Deploy: ["Deploy to ESPHome"],
   };

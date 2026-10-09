@@ -15,6 +15,7 @@ import { ConfigCard } from "./components/ConfigCard";
 import { RecorderCard } from "./components/RecorderCard";
 import { DatasetsCard } from "./components/DatasetsCard";
 import { TrainingCard } from "./components/TrainingCard";
+import { TrainingSettingsCard } from "./components/TrainingSettingsCard";
 import { JobsCard } from "./components/JobsCard";
 import { TestCard } from "./components/TestCard";
 import { useTrainingStream } from "./lib/useTrainingStream";
@@ -144,11 +145,12 @@ function Main() {
       <Container maxWidth="md" sx={{ py: 2 }}>
         <Stack spacing={3}>
           <ProgressSteps positive={counts.positive} recommended={30} jobs={jobs} state={state} tab={tab} onGo={selectTab} />
-          {tab === "data" && project && defaults && <ConfigCard project={project} defaults={defaults} disabled={running} onSaved={setProject} onError={showError} />}
+          {tab === "data" && project && <ConfigCard project={project} disabled={running} onSaved={setProject} onError={showError} />}
           {tab === "data" && project && <RecorderCard key={project.id} storeKey={project.id} wakeWord={project.wake_word} maxSeconds={project.max_record_seconds} disabled={running} onCountsChange={setCounts} onError={showError} />}
           {tab === "data" && <DatasetsCard disabled={running} onError={showError} />}
           {tab === "data" && <StorageCard version={counts.positive + counts.negative + jobs.length} disabled={running} onError={showError} />}
           {tab === "train" && <TrainingCard state={state} log={log} connected={connected} positiveCount={counts.positive} wakeWord={project?.wake_word ?? ""} target={project?.training.target} onError={showError} onFinished={loadJobs} />}
+          {tab === "train" && project && defaults && <TrainingSettingsCard project={project} defaults={defaults} disabled={running} onSaved={setProject} onError={showError} />}
           {tab === "train" && <JobsCard jobs={jobs} disabled={running} onChanged={loadJobs} onError={showError} />}
           {(tab === "test" || tab === "deploy") && !jobs.some((j) => !!j.model_url) && (
             <EmptyState
