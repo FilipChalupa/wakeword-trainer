@@ -36,8 +36,10 @@ export function JobsCard({ jobs, disabled, onChanged, onError }: Props) {
         avatar={<HistoryIcon color="primary" />}
         title={t("jobs.title")}
         subheader={t("jobs.subtitle")}
+        // on a phone the buttons drop under the title instead of squeezing it
+        sx={{ flexWrap: "wrap", rowGap: 1, "& .MuiCardHeader-action": { alignSelf: "center", m: 0, flex: { xs: "1 1 100%", sm: "0 0 auto" } } }}
         action={
-          <Stack direction="row" spacing={1}>
+          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
             <Tooltip title={t("jobs.bundleHelp")}>
               <Button size="small" startIcon={<Inventory2Icon />} href={api.bundleUrl()} download>
                 {t("jobs.bundle")}

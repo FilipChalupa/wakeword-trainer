@@ -5,17 +5,17 @@ import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import DeveloperBoardIcon from "@mui/icons-material/DeveloperBoard";
-import { api, type DeviceEvent, type PublicUrls } from "../api";
+import MemoryIcon from "@mui/icons-material/Memory";
+import DnsIcon from "@mui/icons-material/Dns";
+import { api, type DeviceEvent, type PublicTarget, type PublicUrls, type TrainingTarget } from "../api";
 import { errorText, useI18n } from "../i18n";
 
 type Props = { projectId: string; jobsVersion: number; onError: (m: string) => void };
 
-/** ESPHome deployment: manifest URL, YAML snippet, device event timeline and ESPHome version check. */
+/** Deployment: one section per platform with a model (ESPHome manifest URL, Wyoming model URL), ESP device events and version check. */
 export function DeployCard({ projectId, jobsVersion, onError }: Props) {
   const { t } = useI18n();
   const [urls, setUrls] = useState<PublicUrls | null>(null);
-  const [showSnippet, setShowSnippet] = useState(false);
-  const [copied, setCopied] = useState(false);
   const [events, setEvents] = useState<DeviceEvent[]>([]);
   const [outdated, setOutdated] = useState<string[]>([]);
   const [minVersion, setMinVersion] = useState("2024.7.0");
@@ -43,57 +43,23 @@ export function DeployCard({ projectId, jobsVersion, onError }: Props) {
     return () => clearInterval(timer);
   }, [projectId]);
 
-  const wyoming = urls?.target === "wyoming";
-
-  const copy = async () => {
-    if (!urls) return;
-    try {
-      await navigator.clipboard.writeText(urls.snippet);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      setShowSnippet(true);
-    }
-  };
+  const esphome = urls?.targets.esphome;
+  const shown: TrainingTarget[] = urls ? (["esphome", "wyoming"] as TrainingTarget[]).filter((k) => urls.targets[k].has_model) : [];
 
   return (
     <Card>
-      <CardHeader avatar={<RocketLaunchIcon color="primary" />} title={wyoming ? t("deploy.titleWyoming") : t("deploy.title")} subheader={wyoming ? t("deploy.subtitleWyoming") : t("deploy.subtitle")} />
+      <CardHeader avatar={<RocketLaunchIcon color="primary" />} title={t("deploy.title")} subheader={t("deploy.subtitle")} />
       <CardContent>
         <Stack spacing={2}>
-          {!wyoming && (
-            <Typography variant="body2" color="text.secondary">
-              {t("deploy.help")}
+          {urls && !urls.has_model && <Alert severity="info">{t("deploy.noModel")}</Alert>}
+          {urls && shown.map((k) => <TargetSection key={k} target={k} info={urls.targets[k]} minVersion={urls.minimum_esphome_version} />)}
+          {urls && urls.has_model && shown.length === 1 && (
+            <Typography variant="caption" color="text.secondary">
+              {t("deploy.otherTarget", { target: t(shown[0] === "esphome" ? "target.short.wyoming" : "target.short.esphome") })}
             </Typography>
           )}
-          {urls && !urls.has_model && <Alert severity="info">{t("deploy.noModel")}</Alert>}
-          {urls && urls.target === "wyoming" && <Alert severity="info" variant="outlined">{t("deploy.wyomingHelp")}</Alert>}
-          {urls && (
-            <>
-              <TextField size="small" label={urls.target === "wyoming" ? t("deploy.modelUrl") : t("deploy.manifest")} value={urls.target === "wyoming" ? urls.model_url : urls.manifest_url} fullWidth InputProps={{ readOnly: true }} onFocus={(e) => e.target.select()} />
-              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="center">
-                <Button variant="outlined" startIcon={<ContentCopyIcon />} onClick={copy}>
-                  {copied ? t("share.copied") : wyoming ? t("deploy.copyWyoming") : t("deploy.copy")}
-                </Button>
-                <Button startIcon={showSnippet ? <ExpandLessIcon /> : <ExpandMoreIcon />} onClick={() => setShowSnippet((v) => !v)}>
-                  {urls.target === "wyoming" ? t("deploy.snippetWyoming") : t("deploy.snippet")}
-                </Button>
-                {urls.target !== "wyoming" && <Chip size="small" variant="outlined" label={t("deploy.minVersion", { min: urls.minimum_esphome_version })} />}
-              </Stack>
-              <Collapse in={showSnippet}>
-                <Box component="pre" sx={{ m: 0, p: 1.5, borderRadius: 2, bgcolor: (th) => (th.palette.mode === "dark" ? "#05080f" : "#0f172a"), color: "#cbd5e1", fontSize: 11, overflowX: "auto" }}>
-                  {urls.snippet}
-                </Box>
-              </Collapse>
-              {!wyoming && (
-                <Typography variant="caption" color="text.secondary">
-                  {t("deploy.https")}
-                </Typography>
-              )}
-            </>
-          )}
 
-          {!wyoming && (
+          {esphome?.has_model && (
           <Box>
             <Stack direction="row" spacing={1} alignItems="center">
               <DeveloperBoardIcon fontSize="small" color="primary" />
@@ -134,5 +100,58 @@ export function DeployCard({ projectId, jobsVersion, onError }: Props) {
         </Stack>
       </CardContent>
     </Card>
+  );
+}
+
+/** URL, copy button and the collapsible snippet of one platform's latest model. */
+function TargetSection({ target, info, minVersion }: { target: TrainingTarget; info: PublicTarget; minVersion: string }) {
+  const { t } = useI18n();
+  const [showSnippet, setShowSnippet] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const wyoming = target === "wyoming";
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(info.snippet);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setShowSnippet(true);
+    }
+  };
+
+  return (
+    <Box sx={{ p: 1.5, border: "1px solid", borderColor: "divider", borderRadius: 2 }}>
+      <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
+        {wyoming ? <DnsIcon fontSize="small" color="primary" /> : <MemoryIcon fontSize="small" color="primary" />}
+        <Typography variant="subtitle2">{t(wyoming ? "deploy.section.wyoming" : "deploy.section.esphome")}</Typography>
+        {info.finished_at && <Chip size="small" variant="outlined" label={t("deploy.modelFrom", { date: new Date(info.finished_at).toLocaleString() })} />}
+      </Stack>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+        {wyoming ? t("deploy.wyomingHelp") : t("deploy.help")}
+      </Typography>
+      <Stack spacing={1}>
+        <TextField size="small" label={wyoming ? t("deploy.modelUrl") : t("deploy.manifest")} value={info.url} fullWidth InputProps={{ readOnly: true }} onFocus={(e) => e.target.select()} />
+        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="center">
+          <Button variant="outlined" startIcon={<ContentCopyIcon />} onClick={copy}>
+            {copied ? t("share.copied") : wyoming ? t("deploy.copyWyoming") : t("deploy.copy")}
+          </Button>
+          <Button startIcon={showSnippet ? <ExpandLessIcon /> : <ExpandMoreIcon />} onClick={() => setShowSnippet((v) => !v)}>
+            {wyoming ? t("deploy.snippetWyoming") : t("deploy.snippet")}
+          </Button>
+          {!wyoming && <Chip size="small" variant="outlined" label={t("deploy.minVersion", { min: minVersion })} />}
+        </Stack>
+        <Collapse in={showSnippet}>
+          <Box component="pre" sx={{ m: 0, p: 1.5, borderRadius: 2, bgcolor: (th) => (th.palette.mode === "dark" ? "#05080f" : "#0f172a"), color: "#cbd5e1", fontSize: 11, overflowX: "auto" }}>
+            {info.snippet}
+          </Box>
+        </Collapse>
+        {!wyoming && (
+          <Typography variant="caption" color="text.secondary">
+            {t("deploy.https")}
+          </Typography>
+        )}
+      </Stack>
+    </Box>
   );
 }

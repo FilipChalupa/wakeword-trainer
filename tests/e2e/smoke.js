@@ -13,7 +13,7 @@ const BASE = process.env.BASE_URL || "http://localhost:8000";
     Data: ["Wake word", "Sample recording", "Negative datasets", "Storage use"],
     Training: ["Model training", "Training settings", "Trained models"],
     Test: [],
-    Deploy: ["Deploy to ESPHome"],
+    Deploy: ["Deploy the model"],
   };
   let cards = 0;
   for (const [tab, titles] of Object.entries(expected)) {

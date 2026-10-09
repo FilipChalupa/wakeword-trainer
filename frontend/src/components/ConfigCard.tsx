@@ -14,9 +14,11 @@ type Props = {
   disabled: boolean;
   onSaved: (project: Project) => void;
   onError: (message: string) => void;
+  /** a click on a contributor chip filters the recording list to that person */
+  onPickContributor?: (name: string) => void;
 };
 
-export function ConfigCard({ project, disabled, onSaved, onError }: Props) {
+export function ConfigCard({ project, disabled, onSaved, onError, onPickContributor }: Props) {
   const { t } = useI18n();
   const [wakeWord, setWakeWord] = useState(project.wake_word);
   const [target, setTarget] = useState(project.contributor_target ?? 10);
@@ -70,14 +72,14 @@ export function ConfigCard({ project, disabled, onSaved, onError }: Props) {
           </Stack>
 
           <Divider />
-          <ShareSection project={project} onSaved={onSaved} onError={onError} />
+          <ShareSection project={project} onSaved={onSaved} onError={onError} onPickContributor={onPickContributor} />
         </Stack>
       </CardContent>
     </Card>
   );
 }
 
-function ShareSection({ project, onSaved, onError }: { project: Project; onSaved: (p: Project) => void; onError: (m: string) => void }) {
+function ShareSection({ project, onSaved, onError, onPickContributor }: { project: Project; onSaved: (p: Project) => void; onError: (m: string) => void; onPickContributor?: (name: string) => void }) {
   const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -173,7 +175,7 @@ function ShareSection({ project, onSaved, onError }: { project: Project; onSaved
       {contributors.length > 0 && (
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mt: 1.5 }} alignItems="center">
           <Typography variant="caption" color="text.secondary">
-            {t("share.contributors")}:
+            {t("share.contributors")} ({t("share.clickToFilter")}):
           </Typography>
           {contributors.map((c) => (
             <Chip
@@ -182,6 +184,7 @@ function ShareSection({ project, onSaved, onError }: { project: Project; onSaved
               variant="outlined"
               color={c.name !== "owner" && c.positive >= (project.contributor_target ?? 10) ? "success" : "default"}
               label={`${c.name === "owner" ? t("share.owner") : c.name}: ${c.positive}${c.negative ? ` (+${c.negative})` : ""}`}
+              onClick={onPickContributor ? () => onPickContributor(c.name) : undefined}
             />
           ))}
         </Stack>

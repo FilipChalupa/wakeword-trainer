@@ -11,7 +11,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 
-from .config import Project, current_project, find_project_by_model_token, get_or_create_model_token, load_settings
+from .config import Project, current_project, find_project_by_model_token, get_or_create_model_token, load_settings, slugify
 
 router = APIRouter(prefix="/api", tags=["public"])
 
@@ -27,13 +27,22 @@ def _project(token: str) -> Project:
     return project
 
 
-def latest_done_job(project: Project) -> dict[str, Any] | None:
+TARGETS = ("esphome", "wyoming")
+
+
+def latest_done_job(project: Project, target: str | None = None) -> dict[str, Any] | None:
+    """Newest finished run with a model; `target` narrows it to one platform (an ESP must never get a Wyoming model)."""
     from .jobs import list_jobs
 
     for job in list_jobs(project):
-        if job["status"] == "done" and job["model_url"]:
+        if job["status"] == "done" and job["model_url"] and (target is None or job.get("target", "esphome") == target):
             return job
     return None
+
+
+def default_target(project: Project) -> str:
+    target = load_settings(project)["training"].get("target", "esphome")
+    return target if target in TARGETS else "esphome"
 
 
 def public_base(request: Request) -> str:
@@ -52,6 +61,7 @@ def public_urls(request: Request, project: Project) -> dict[str, str]:
         "token": token,
         "manifest_url": f"{base}/api/public/{token}/manifest.json",
         "model_url": f"{base}/api/public/{token}/model.tflite",
+        "wyoming_model_url": f"{base}/api/public/{token}/model.tflite?target=wyoming",
         "device_event_url": f"{base}/api/public/{token}/device-event",
     }
 
@@ -89,6 +99,7 @@ def version_tuple(text: str) -> tuple[int, ...]:
 @router.get("/projects/{pid}/public-urls")
 def get_public_urls(pid: str, request: Request):
     from .config import get_project
+    from .export import wyoming_readme
 
     try:
         project = get_project(pid)
@@ -96,47 +107,56 @@ def get_public_urls(pid: str, request: Request):
         raise HTTPException(404, {"code": "not_found", "message": "Project not found"}) from None
     settings = load_settings(project)
     urls = public_urls(request, project)
-    job = latest_done_job(project)
-    target = job["target"] if job else settings["training"].get("target", "esphome")
-    slug = job["slug"] if job else "wakeword"
-    if target == "wyoming":
-        from .export import wyoming_readme
-
-        snippet = wyoming_readme(slug, settings["wake_word"]) + f"\nDirect download of the latest model: {urls['model_url']}\n"
-    else:
-        snippet = esphome_url_snippet(urls, settings["wake_word"], slug)
+    targets: dict[str, dict[str, Any]] = {}
+    for target in TARGETS:
+        job = latest_done_job(project, target)
+        slug = job["slug"] if job else slugify(settings["wake_word"])
+        if target == "wyoming":
+            url = urls["wyoming_model_url"]
+            snippet = wyoming_readme(slug, settings["wake_word"]) + f"\nDirect download of the latest Wyoming model: {url}\n"
+        else:
+            url = urls["manifest_url"]
+            snippet = esphome_url_snippet(urls, settings["wake_word"], slug)
+        targets[target] = {"has_model": job is not None, "job_id": job["job_id"] if job else None, "finished_at": job["finished_at"] if job else None, "slug": slug, "url": url, "snippet": snippet}
+    default = default_target(project)
     return {
         **urls,
-        "has_model": job is not None,
-        "job_id": job["job_id"] if job else None,
-        "target": target,
-        "slug": slug,
+        "default_target": default,
+        "targets": targets,
+        "has_model": any(v["has_model"] for v in targets.values()),
         "minimum_esphome_version": MIN_ESPHOME,
-        "snippet": snippet,
+        # legacy fields of the default platform
+        "job_id": targets[default]["job_id"],
+        "target": default,
+        "slug": targets[default]["slug"],
+        "snippet": targets[default]["snippet"],
     }
 
 
 @router.get("/public/{token}/manifest.json")
 def public_manifest(token: str, request: Request):
     project = _project(token)
-    job = latest_done_job(project)
+    job = latest_done_job(project, "esphome")
     if not job:
-        raise HTTPException(404, {"code": "no_models", "message": "No trained model yet"})
+        raise HTTPException(404, {"code": "no_models", "message": "No trained ESPHome (microWakeWord) model yet"})
     job_dir = project.jobs_dir / job["job_id"]
     manifest_path = job_dir / f"{job['slug']}.json"
-    if job.get("target") == "wyoming" or not manifest_path.exists():
-        raise HTTPException(404, {"code": "no_manifest", "message": "The latest model is an openWakeWord (Wyoming) model – it has no ESPHome manifest; download model.tflite instead"})
+    if not manifest_path.exists():
+        raise HTTPException(404, {"code": "no_manifest", "message": "The latest ESPHome model has no manifest"})
     manifest = json.loads(manifest_path.read_text())
-    manifest["model"] = f"{public_base(request)}/api/public/{token}/model.tflite"
+    manifest["model"] = f"{public_base(request)}/api/public/{token}/model.tflite?target=esphome"
     return JSONResponse(manifest, headers={"Cache-Control": "no-cache"})
 
 
 @router.get("/public/{token}/model.tflite")
-def public_model(token: str):
+def public_model(token: str, target: str | None = None):
+    """Latest model of one platform. Without `target` (links copied before platforms were separate) the project's default platform."""
     project = _project(token)
-    job = latest_done_job(project)
+    if target is not None and target not in TARGETS:
+        raise HTTPException(400, {"code": "bad_target", "message": "target must be esphome or wyoming"})
+    job = latest_done_job(project, target or default_target(project))
     if not job:
-        raise HTTPException(404, {"code": "no_models", "message": "No trained model yet"})
+        raise HTTPException(404, {"code": "no_models", "message": "No trained model for this platform yet"})
     path = project.jobs_dir / job["job_id"] / f"{job['slug']}.tflite"
     return FileResponse(path, media_type="application/octet-stream", filename=path.name, headers={"Cache-Control": "no-cache"})
 
@@ -192,7 +212,7 @@ def bundle(request: Request, projects: str = ""):
                 project = get_project(pid)
             except KeyError:
                 continue
-            job = latest_done_job(project)
+            job = latest_done_job(project, "esphome")
             if not job:
                 continue
             job_dir = project.jobs_dir / job["job_id"]

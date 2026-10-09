@@ -194,6 +194,7 @@ class JobManager:
             "resumable": False,
             "started_at": None,
             "finished_at": None,
+            "target": None,
             "error": None,
         }
 
@@ -406,6 +407,7 @@ class JobManager:
             stage="Checking datasets",
             stage_key="checking_datasets",
             started_at=_now(),
+            target=job["training"].get("target", "esphome"),
             total_steps=int(job["training"]["training_steps"]),
             eval_step_interval=int(job["training"]["eval_step_interval"]),
         )

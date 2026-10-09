@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Alert, AppBar, Badge, Box, Container, MenuItem, Select, Snackbar, Stack, Tab, Tabs, Toolbar, Typography } from "@mui/material";
+import { Alert, AppBar, Badge, Box, Container, MenuItem, Select, Snackbar, Stack, Tab, Tabs, Toolbar, Typography, useMediaQuery } from "@mui/material";
 import RecordVoiceOverIcon from "@mui/icons-material/RecordVoiceOver";
 import { AppThemeProvider } from "./theme";
 import { api, type Job, type Project, type ProjectSummary, type TrainingParams } from "./api";
@@ -36,6 +36,11 @@ function Main() {
   const [project, setProject] = useState<Project | null>(null);
   const [defaults, setDefaults] = useState<TrainingParams | null>(null);
   const [counts, setCounts] = useState({ positive: 0, negative: 0 });
+  const [contributorFilter, setContributorFilter] = useState<string | null>(null);
+  const pickContributor = (name: string) => {
+    setContributorFilter(name);
+    setTimeout(() => document.getElementById("recorder-card")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  };
   const [jobs, setJobs] = useState<Job[]>([]);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [currentProject, setCurrentProject] = useState<string>("");
@@ -97,19 +102,23 @@ function Main() {
   };
 
   const running = ["downloading", "preparing", "training", "converting"].includes(state.status);
+  const phone = useMediaQuery("(max-width:599.95px)");
 
   return (
     <Box sx={{ minHeight: "100vh", bgcolor: "background.default" }}>
       <AppBar position="sticky" color="default" elevation={0} sx={{ borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
-        <Toolbar>
-          <RecordVoiceOverIcon color="primary" sx={{ mr: 1.5 }} />
-          <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography variant="h6" component="h1" lineHeight={1.2}>
-              {t("app.title")}
-            </Typography>
-            <Typography variant="caption" color="text.secondary" noWrap display="block">
-              {t("app.subtitle")}
-            </Typography>
+        {/* on a phone the bar wraps: title and language on the first row, the project controls on the second */}
+        <Toolbar sx={{ flexWrap: { xs: "wrap", sm: "nowrap" }, py: { xs: 1, sm: 0 }, rowGap: 1 }}>
+          <Box sx={{ display: "flex", alignItems: "center", flex: "1 1 0", minWidth: 0 }}>
+            <RecordVoiceOverIcon color="primary" sx={{ mr: 1.5 }} />
+            <Box sx={{ minWidth: 0 }}>
+              <Typography variant="h6" component="h1" lineHeight={1.2} noWrap>
+                {t("app.title")}
+              </Typography>
+              <Typography variant="caption" color="text.secondary" noWrap display="block">
+                {t("app.subtitle")}
+              </Typography>
+            </Box>
           </Box>
           {project && (
             <Typography variant="subtitle1" fontWeight={600} color="primary" sx={{ mr: 2, display: { xs: "none", lg: "block" } }}>
@@ -118,11 +127,11 @@ function Main() {
           )}
           <SystemChip />
           {projects.length > 0 && (
-            <Box sx={{ mr: 1 }}>
+            <Box sx={{ mr: { xs: 0, sm: 1 }, order: { xs: 3, sm: 0 }, flex: { xs: "1 1 100%", sm: "0 0 auto" } }}>
               <ProjectSelector projects={projects} current={currentProject} disabled={running} onChanged={onProjectsChanged} onError={showError} />
             </Box>
           )}
-          <Select size="small" value={lang} onChange={(e) => setLang(e.target.value as Lang)} aria-label={t("app.language")} sx={{ minWidth: 90 }}>
+          <Select size="small" value={lang} onChange={(e) => setLang(e.target.value as Lang)} aria-label={t("app.language")} renderValue={(v) => (phone ? String(v).toUpperCase() : v === "cs" ? "Čeština" : "English")} sx={{ minWidth: { xs: 0, sm: 90 } }}>
             <MenuItem value="cs">Čeština</MenuItem>
             <MenuItem value="en">English</MenuItem>
           </Select>
@@ -145,11 +154,11 @@ function Main() {
       <Container maxWidth="md" sx={{ py: 2 }}>
         <Stack spacing={3}>
           <ProgressSteps positive={counts.positive} recommended={30} jobs={jobs} state={state} tab={tab} onGo={selectTab} />
-          {tab === "data" && project && <ConfigCard project={project} disabled={running} onSaved={setProject} onError={showError} />}
-          {tab === "data" && project && <RecorderCard key={project.id} storeKey={project.id} wakeWord={project.wake_word} maxSeconds={project.max_record_seconds} disabled={running} onCountsChange={setCounts} onError={showError} />}
+          {tab === "data" && project && <ConfigCard project={project} disabled={running} onSaved={setProject} onError={showError} onPickContributor={pickContributor} />}
+          {tab === "data" && project && <RecorderCard key={project.id} storeKey={project.id} wakeWord={project.wake_word} maxSeconds={project.max_record_seconds} disabled={running} onCountsChange={setCounts} onError={showError} contributorFilter={contributorFilter} onContributorFilter={setContributorFilter} />}
           {tab === "data" && <DatasetsCard disabled={running} onError={showError} />}
           {tab === "data" && <StorageCard version={counts.positive + counts.negative + jobs.length} disabled={running} onError={showError} />}
-          {tab === "train" && <TrainingCard state={state} log={log} connected={connected} positiveCount={counts.positive} wakeWord={project?.wake_word ?? ""} target={project?.training.target} onError={showError} onFinished={loadJobs} />}
+          {tab === "train" && <TrainingCard state={state} log={log} connected={connected} positiveCount={counts.positive} wakeWord={project?.wake_word ?? ""} target={project?.training.target} jobs={jobs} onError={showError} onFinished={loadJobs} />}
           {tab === "train" && project && defaults && <TrainingSettingsCard project={project} defaults={defaults} disabled={running} onSaved={setProject} onError={showError} />}
           {tab === "train" && <JobsCard jobs={jobs} disabled={running} onChanged={loadJobs} onError={showError} />}
           {(tab === "test" || tab === "deploy") && !jobs.some((j) => !!j.model_url) && (

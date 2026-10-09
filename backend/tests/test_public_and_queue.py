@@ -8,10 +8,10 @@ from app.public import version_tuple
 client = TestClient(app)
 
 
-def _fake_done_job(project_dir, job_id="20260101_000000_fake", slug="chaloupko"):
+def _fake_done_job(project_dir, job_id="20260101_000000_fake", slug="chaloupko", target="esphome"):
     job_dir = project_dir / "jobs" / job_id
     job_dir.mkdir(parents=True, exist_ok=True)
-    (job_dir / "job.json").write_text(json.dumps({"job_id": job_id, "project_id": project_dir.name, "wake_word": "chaloupko", "slug": slug, "training": {"training_steps": 10}, "created_at": "2026-01-01T00:00:00"}))
+    (job_dir / "job.json").write_text(json.dumps({"job_id": job_id, "project_id": project_dir.name, "wake_word": "chaloupko", "slug": slug, "training": {"training_steps": 10, "target": target}, "created_at": "2026-01-01T00:00:00"}))
     (job_dir / "result.json").write_text(json.dumps({"status": "done", "final_metrics": {"manifest_cutoff": 0.7}}))
     (job_dir / f"{slug}.tflite").write_bytes(b"TFL3fake")
     (job_dir / f"{slug}.json").write_text(json.dumps({"type": "micro", "wake_word": "chaloupko", "model": f"{slug}.tflite", "micro": {"probability_cutoff": 0.7, "sliding_window_size": 5}}))
@@ -27,12 +27,37 @@ def test_public_manifest_model_and_bundle():
     assert urls["has_model"] and urls["manifest_url"].endswith("/manifest.json") and "micro_wake_word" in urls["snippet"]
     token = urls["token"]
     manifest = client.get(f"/api/public/{token}/manifest.json").json()
-    assert manifest["model"].endswith(f"/api/public/{token}/model.tflite")
+    assert manifest["model"].endswith(f"/api/public/{token}/model.tflite?target=esphome")
     assert client.get(f"/api/public/{token}/model.tflite").content == b"TFL3fake"
+    assert urls["targets"]["esphome"]["has_model"] and not urls["targets"]["wyoming"]["has_model"]
+    assert client.get(f"/api/public/{token}/model.tflite?target=wyoming").status_code == 404
+    assert client.get(f"/api/public/{token}/model.tflite?target=android").status_code == 400
     assert client.get("/api/public/nope/manifest.json").status_code == 403
     res = client.get("/api/bundle")
     assert res.status_code == 200 and res.headers["content-type"] == "application/zip"
     client.delete("/api/jobs/20260101_000000_fake")
+
+
+def test_public_urls_keep_platforms_apart():
+    """A newer Wyoming run must not replace the model an ESP downloads via the manifest."""
+    from app import config
+
+    project = config.current_project()
+    _fake_done_job(project.dir)
+    wy = _fake_done_job(project.dir, job_id="20260102_000000_wyo", target="wyoming")
+    (wy / "chaloupko.json").unlink()
+    (wy / "chaloupko.tflite").write_bytes(b"TFL3wyoming")
+    urls = client.get(f"/api/projects/{project.id}/public-urls").json()
+    token = urls["token"]
+    assert urls["targets"]["wyoming"]["has_model"] and urls["targets"]["wyoming"]["url"].endswith("?target=wyoming")
+    assert "openWakeWord" in urls["targets"]["wyoming"]["snippet"] and "micro_wake_word" in urls["targets"]["esphome"]["snippet"]
+    manifest = client.get(f"/api/public/{token}/manifest.json").json()
+    assert manifest["model"].endswith("/model.tflite?target=esphome")
+    assert client.get(f"/api/public/{token}/model.tflite?target=esphome").content == b"TFL3fake"
+    assert client.get(f"/api/public/{token}/model.tflite?target=wyoming").content == b"TFL3wyoming"
+    assert client.get(f"/api/public/{token}/model.tflite").content == b"TFL3fake"  # default platform of the project
+    client.delete("/api/jobs/20260101_000000_fake")
+    client.delete("/api/jobs/20260102_000000_wyo")
 
 
 def test_device_events_and_version_check():

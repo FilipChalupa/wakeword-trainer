@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Alert, Box, Button, Card, CardContent, CardHeader, Chip, Collapse, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, IconButton, LinearProgress, MenuItem, Stack, Switch, Table, TableBody, TableCell, TableHead, TableRow, TextField, Tooltip, Typography } from "@mui/material";
 import QueueIcon from "@mui/icons-material/Queue";
 import DeleteIcon from "@mui/icons-material/Delete";
-import type { TrainingParams } from "../api";
+import type { Job, TrainingParams } from "../api";
 import ModelTrainingIcon from "@mui/icons-material/ModelTraining";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import StopIcon from "@mui/icons-material/Stop";
@@ -24,6 +24,8 @@ type Props = {
   positiveCount: number;
   wakeWord: string;
   target?: TrainingParams["target"];
+  /** finished runs, newest first: the ETA before the first training step comes from the last run of the same platform */
+  jobs?: Job[];
   onError: (message: string) => void;
   onFinished: () => void;
 };
@@ -44,13 +46,30 @@ const STAGE_KEYS = new Set(["checking_datasets", "downloading_dataset", "extract
 const MSG_KEYS = new Set(["init_tf", "augment_positive", "hard_negatives", "speech_features", "noise_features", "ambient_features", "train_steps", "find_model", "model_ready", "auto_threshold", "oww_models"]);
 const NOTIFY_KEY = "wakeword-trainer.notify";
 
+/** "≈ 12 min", "≈ 1 h 05 min" or "< 1 min". */
+function formatEta(seconds: number) {
+  const m = Math.round(seconds / 60);
+  if (m < 1) return "< 1 min";
+  if (m < 90) return `≈ ${m} min`;
+  return `≈ ${Math.floor(m / 60)} h ${String(m % 60).padStart(2, "0")} min`;
+}
+
+/** Seconds the last finished run of the same platform took, scaled to this run's step count. */
+function historicalSeconds(jobs: Job[], jobTarget: string, steps: number): number | null {
+  const last = jobs.find((j) => j.status === "done" && j.finished_at && j.target === jobTarget && j.training?.training_steps > 0);
+  if (!last || !last.finished_at) return null;
+  const took = (new Date(last.finished_at).getTime() - new Date(last.created_at).getTime()) / 1000;
+  if (!(took > 0)) return null;
+  return steps > 0 ? (took * steps) / last.training.training_steps : took;
+}
+
 function formatBytes(n: number) {
   if (n > 1 << 30) return `${(n / (1 << 30)).toFixed(2)} GB`;
   if (n > 1 << 20) return `${(n / (1 << 20)).toFixed(1)} MB`;
   return `${(n / 1024).toFixed(0)} kB`;
 }
 
-export function TrainingCard({ state, log, connected, positiveCount, wakeWord, target = "esphome", onError, onFinished }: Props) {
+export function TrainingCard({ state, log, connected, positiveCount, wakeWord, target = "esphome", jobs = [], onError, onFinished }: Props) {
   const { t } = useI18n();
   const [showLog, setShowLog] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -176,6 +195,33 @@ export function TrainingCard({ state, log, connected, positiveCount, wakeWord, t
   const total = isTraining ? state.total_steps : state.progress.total;
   const current = isTraining ? state.step : state.progress.current;
   const pct = total > 0 ? Math.min(100, (current / total) * 100) : 0;
+
+  // ETA: once steps tick, from the measured pace of this run; before that, from the last run of the same platform
+  const pace = useRef<{ at: number; step: number } | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!running) {
+      pace.current = null;
+      return;
+    }
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [running]);
+  useEffect(() => {
+    if (!isTraining || state.step <= 0) return;
+    if (!pace.current) pace.current = { at: Date.now(), step: state.step };
+  }, [isTraining, state.step]);
+  let eta: number | null = null;
+  if (running) {
+    const p = pace.current;
+    if (isTraining && p && state.step - p.step >= Math.max(1, state.eval_step_interval || 50)) {
+      eta = ((state.total_steps - state.step) * (now - p.at)) / 1000 / (state.step - p.step);
+    } else {
+      const guess = historicalSeconds(jobs, state.target ?? target, state.total_steps);
+      const elapsed = state.started_at ? (now - new Date(state.started_at).getTime()) / 1000 : 0;
+      if (guess !== null) eta = Math.max(0, guess - elapsed);
+    }
+  }
   const lastValidation = state.validation[state.validation.length - 1];
   const params = state.message_params ?? {};
   const stageText = state.stage_key && STAGE_KEYS.has(state.stage_key) ? t(`train.stage.${state.stage_key}` as TKey, params) : state.stage;
@@ -257,6 +303,7 @@ export function TrainingCard({ state, log, connected, positiveCount, wakeWord, t
                         : ""}
                 </Typography>
                 <Typography variant="caption" color="text.secondary">
+                  {eta !== null && running ? `${t("train.eta", { eta: formatEta(eta) })} · ` : ""}
                   {pct.toFixed(0)} %
                 </Typography>
               </Stack>
@@ -317,12 +364,14 @@ export function TrainingCard({ state, log, connected, positiveCount, wakeWord, t
                 {state.queue.map((q, i) => (
                   <Stack key={q.id} direction="row" spacing={1} alignItems="center">
                     <Chip size="small" label={i + 1} />
+                    <Chip size="small" variant="outlined" label={t((q.overrides.target ?? target) === "wyoming" ? "target.short.wyoming" : "target.short.esphome")} />
                     <Typography variant="body2" sx={{ flex: 1 }}>
                       {q.label || "–"}{" "}
                       <Typography component="span" variant="caption" color="text.secondary">
                         {Object.entries(q.overrides)
-                          .map(([k, v]) => `${k}=${v}`)
-                          .join(", ")}
+                          .filter(([k]) => k !== "target")
+                          .map(([k, v]) => `${t(`config.f.${k}` as TKey)}: ${v}`)
+                          .join(" · ")}
                       </Typography>
                     </Typography>
                     <Tooltip title={t("queue.remove")}>

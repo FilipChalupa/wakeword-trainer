@@ -60,6 +60,9 @@ type Props = {
   /** Contributor mode: no import, no bulk selection, simplified header. */
   compact?: boolean;
   title?: string;
+  /** Only recordings of this contributor ("owner" = you) are listed; set from the contributor chips or the select above the list. */
+  contributorFilter?: string | null;
+  onContributorFilter?: (name: string | null) => void;
 };
 
 type Phase = "idle" | "prepare" | "countdown" | "recording" | "uploading";
@@ -83,7 +86,7 @@ function writePref(key: string, value: string): void {
   }
 }
 
-export function RecorderCard({ wakeWord, maxSeconds, disabled, onCountsChange, onError, client = api, storeKey, compact = false, title }: Props) {
+export function RecorderCard({ wakeWord, maxSeconds, disabled, onCountsChange, onError, client = api, storeKey, compact = false, title, contributorFilter = null, onContributorFilter }: Props) {
   const theme = useTheme();
   const { t } = useI18n();
   const fail = useCallback((e: unknown) => onError(e instanceof Error && e.message === "mic_unsupported" ? t("rec.micUnsupported") : errorText(t, e)), [onError, t]);
@@ -417,7 +420,8 @@ export function RecorderCard({ wakeWord, maxSeconds, disabled, onCountsChange, o
   };
 
   // ----- derived --------------------------------------------------------------
-  const list = items[kind];
+  const contributorNames = useMemo(() => Array.from(new Set(items[kind].map((r) => r.contributor ?? "owner"))), [items, kind]);
+  const list = useMemo(() => (contributorFilter ? items[kind].filter((r) => (r.contributor ?? "owner") === contributorFilter) : items[kind]), [items, kind, contributorFilter]);
   const positiveCount = items.positive.length;
   const progress = Math.min(100, (positiveCount / RECOMMENDED) * 100);
   const problems = useMemo(() => list.filter((r) => r.quality.issues.length > 0).length, [list]);
@@ -453,6 +457,7 @@ export function RecorderCard({ wakeWord, maxSeconds, disabled, onCountsChange, o
 
   return (
     <Card
+      id="recorder-card"
       onDragOver={(e) => {
         e.preventDefault();
         setDragOver(true);
@@ -658,6 +663,16 @@ export function RecorderCard({ wakeWord, maxSeconds, disabled, onCountsChange, o
               <Tooltip title={t("rec.warningsTooltip")}>
                 <Chip icon={<WarningAmberIcon />} color="warning" variant="outlined" size="small" label={t("rec.withWarnings", { n: problems })} onClick={() => setSelected(new Set(list.filter((r) => r.quality.issues.length).map((r) => r.id)))} />
               </Tooltip>
+            )}
+            {!compact && (contributorNames.length > 1 || contributorFilter) && (
+              <TextField select size="small" label={t("rec.filterContributor")} value={contributorFilter ?? ""} onChange={(e) => onContributorFilter?.(e.target.value || null)} sx={{ minWidth: 150 }} SelectProps={{ displayEmpty: true }} InputLabelProps={{ shrink: true }}>
+                <MenuItem value="">{t("rec.filterAll")}</MenuItem>
+                {Array.from(new Set([...contributorNames, ...(contributorFilter ? [contributorFilter] : [])])).map((name) => (
+                  <MenuItem key={name} value={name}>
+                    {name === "owner" ? t("share.owner") : name}
+                  </MenuItem>
+                ))}
+              </TextField>
             )}
             {!compact && (
               <Typography variant="caption" color="text.secondary" sx={{ ml: "auto" }}>

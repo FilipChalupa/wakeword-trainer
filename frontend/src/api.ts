@@ -141,6 +141,7 @@ export type TrainingState = {
   resumable: boolean;
   started_at: string | null;
   finished_at: string | null;
+  target: TrainingTarget | null;
   error: string | null;
   log_tail?: string[];
 };
@@ -149,7 +150,18 @@ export type QueuedRun = { id: string; project_id: string; overrides: Partial<Tra
 
 export type MonitorItem = Recording & { job_id?: string };
 export type DeviceEvent = { at: string; device: string; wake_word: string; esphome_version: string; probability: number | null };
-export type PublicUrls = { token: string; manifest_url: string; model_url: string; device_event_url: string; has_model: boolean; job_id: string | null; target: TrainingTarget; slug: string; minimum_esphome_version: string; snippet: string };
+export type PublicTarget = { has_model: boolean; job_id: string | null; finished_at: string | null; slug: string; url: string; snippet: string };
+export type PublicUrls = {
+  token: string;
+  manifest_url: string;
+  model_url: string;
+  wyoming_model_url: string;
+  device_event_url: string;
+  has_model: boolean;
+  default_target: TrainingTarget;
+  targets: Record<TrainingTarget, PublicTarget>;
+  minimum_esphome_version: string;
+};
 
 export type StorageInfo = {
   total: number;

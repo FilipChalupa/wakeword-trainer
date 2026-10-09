@@ -27,6 +27,7 @@ const EMPTY: TrainingState = {
   resumable: false,
   started_at: null,
   finished_at: null,
+  target: null,
   error: null,
 };
 
