@@ -347,6 +347,7 @@ export function RecorderCard({ wakeWord, maxSeconds, disabled, onCountsChange, o
     const handler = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable)) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return; // Ctrl+R reloads the page, Ctrl+Space and the like belong to the browser
       if (e.code === "Space" || e.key.toLowerCase() === "r") {
         e.preventDefault();
         recordSingle();
