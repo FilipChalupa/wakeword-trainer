@@ -56,6 +56,11 @@ def test_public_urls_keep_platforms_apart():
     assert client.get(f"/api/public/{token}/model.tflite?target=esphome").content == b"TFL3fake"
     assert client.get(f"/api/public/{token}/model.tflite?target=wyoming").content == b"TFL3wyoming"
     assert client.get(f"/api/public/{token}/model.tflite").content == b"TFL3fake"  # default platform of the project
+    import io
+    import zipfile
+
+    names = zipfile.ZipFile(io.BytesIO(client.get("/api/bundle").content)).namelist()
+    assert "chaloupko.tflite" in names and "wyoming/chaloupko.tflite" in names and "wyoming/README.txt" in names
     client.delete("/api/jobs/20260101_000000_fake")
     client.delete("/api/jobs/20260102_000000_wyo")
 

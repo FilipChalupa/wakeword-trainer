@@ -170,7 +170,7 @@ function Main() {
             />
           )}
           {tab === "test" && jobs.some((j) => !!j.model_url) && <TestCard jobs={jobs} wakeWord={project?.wake_word ?? ""} disabled={running} onError={showError} onInfo={setInfo} />}
-          {tab === "deploy" && project && <DeployCard projectId={project.id} jobsVersion={jobsVersion} onError={showError} />}
+          {tab === "deploy" && project && jobs.some((j) => !!j.model_url) && <DeployCard projectId={project.id} jobsVersion={jobsVersion} onError={showError} />}
           <Typography variant="caption" color="text.secondary" textAlign="center">
             {t("app.footer")}
           </Typography>

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Alert, Box, Button, Card, CardContent, CardHeader, Chip, Collapse, Stack, TextField, Typography } from "@mui/material";
 import RocketLaunchIcon from "@mui/icons-material/RocketLaunch";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import DownloadIcon from "@mui/icons-material/Download";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import DeveloperBoardIcon from "@mui/icons-material/DeveloperBoard";
@@ -52,7 +53,7 @@ export function DeployCard({ projectId, jobsVersion, onError }: Props) {
       <CardContent>
         <Stack spacing={2}>
           {urls && !urls.has_model && <Alert severity="info">{t("deploy.noModel")}</Alert>}
-          {urls && shown.map((k) => <TargetSection key={k} target={k} info={urls.targets[k]} minVersion={urls.minimum_esphome_version} />)}
+          {urls && shown.map((k) => <TargetSection key={k} target={k} info={urls.targets[k]} minVersion={urls.minimum_esphome_version} lastEventAt={events[0]?.at ?? null} />)}
           {urls && urls.has_model && shown.length === 1 && (
             <Typography variant="caption" color="text.secondary">
               {t("deploy.otherTarget", { target: t(shown[0] === "esphome" ? "target.short.wyoming" : "target.short.esphome") })}
@@ -104,11 +105,13 @@ export function DeployCard({ projectId, jobsVersion, onError }: Props) {
 }
 
 /** URL, copy button and the collapsible snippet of one platform's latest model. */
-function TargetSection({ target, info, minVersion }: { target: TrainingTarget; info: PublicTarget; minVersion: string }) {
+function TargetSection({ target, info, minVersion, lastEventAt }: { target: TrainingTarget; info: PublicTarget; minVersion: string; lastEventAt: string | null }) {
   const { t } = useI18n();
   const [showSnippet, setShowSnippet] = useState(false);
   const [copied, setCopied] = useState(false);
   const wyoming = target === "wyoming";
+  // ESPHome bakes the model in at build time: until a device reports a detection newer than the model, it still runs the old one
+  const needsReflash = !wyoming && !!info.finished_at && (!lastEventAt || lastEventAt < info.finished_at);
 
   const copy = async () => {
     try {
@@ -131,8 +134,18 @@ function TargetSection({ target, info, minVersion }: { target: TrainingTarget; i
         {wyoming ? t("deploy.wyomingHelp") : t("deploy.help")}
       </Typography>
       <Stack spacing={1}>
+        {needsReflash && (
+          <Alert severity="info" variant="outlined">
+            {t("deploy.reflash", { date: new Date(info.finished_at as string).toLocaleString() })}
+          </Alert>
+        )}
         <TextField size="small" label={wyoming ? t("deploy.modelUrl") : t("deploy.manifest")} value={info.url} fullWidth InputProps={{ readOnly: true }} onFocus={(e) => e.target.select()} />
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="center">
+          {wyoming && (
+            <Button variant="outlined" startIcon={<DownloadIcon />} href={info.url} download={`${info.slug}.tflite`}>
+              {t("deploy.download")}
+            </Button>
+          )}
           <Button variant="outlined" startIcon={<ContentCopyIcon />} onClick={copy}>
             {copied ? t("share.copied") : wyoming ? t("deploy.copyWyoming") : t("deploy.copy")}
           </Button>

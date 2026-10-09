@@ -195,17 +195,20 @@ def get_device_events(since: str | None = None):
 
 @router.get("/bundle")
 def bundle(request: Request, projects: str = ""):
-    """ZIP with the latest model + manifest of several projects and one ESPHome YAML listing all of them."""
+    """ZIP with the latest model of each platform per project: ESPHome .tflite + .json with one YAML listing all of them,
+    Wyoming .tflite files under wyoming/ with a README."""
     import io
     import zipfile
 
     from fastapi.responses import StreamingResponse
 
     from .config import get_project, list_projects
+    from .export import wyoming_readme
 
     ids = [p for p in projects.split(",") if p] or [p["id"] for p in list_projects()]
     buffer = io.BytesIO()
     models_yaml = []
+    wyoming_readmes = []
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         for pid in ids:
             try:
@@ -213,18 +216,25 @@ def bundle(request: Request, projects: str = ""):
             except KeyError:
                 continue
             job = latest_done_job(project, "esphome")
-            if not job:
-                continue
-            job_dir = project.jobs_dir / job["job_id"]
-            slug = job["slug"]
-            zf.write(job_dir / f"{slug}.tflite", f"{slug}.tflite")
-            if (job_dir / f"{slug}.json").exists():
-                zf.write(job_dir / f"{slug}.json", f"{slug}.json")
-            models_yaml.append(f"    - model: {slug}.json   # {job['wake_word']}")
-        if not models_yaml:
+            if job:
+                job_dir = project.jobs_dir / job["job_id"]
+                slug = job["slug"]
+                zf.write(job_dir / f"{slug}.tflite", f"{slug}.tflite")
+                if (job_dir / f"{slug}.json").exists():
+                    zf.write(job_dir / f"{slug}.json", f"{slug}.json")
+                models_yaml.append(f"    - model: {slug}.json   # {job['wake_word']}")
+            job = latest_done_job(project, "wyoming")
+            if job:
+                job_dir = project.jobs_dir / job["job_id"]
+                slug = job["slug"]
+                zf.write(job_dir / f"{slug}.tflite", f"wyoming/{slug}.tflite")
+                wyoming_readmes.append(wyoming_readme(slug, job["wake_word"]))
+        if not models_yaml and not wyoming_readmes:
             raise HTTPException(404, {"code": "no_models", "message": "No trained models to bundle"})
-        yaml_text = "# Several wake words on one ESPHome device – copy the .tflite/.json files next to this YAML.\nmicro_wake_word:\n  models:\n" + "\n".join(models_yaml) + "\n  on_wake_word_detected:\n    - logger.log:\n        format: \"Wake word detected: %s\"\n        args: ['x.c_str()']\n"
-        zf.writestr("esphome-wake-words.yaml", yaml_text)
+        if models_yaml:
+            yaml_text = "# Several wake words on one ESPHome device – copy the .tflite/.json files next to this YAML.\nmicro_wake_word:\n  models:\n" + "\n".join(models_yaml) + "\n  on_wake_word_detected:\n    - logger.log:\n        format: \"Wake word detected: %s\"\n        args: ['x.c_str()']\n"
+            zf.writestr("esphome-wake-words.yaml", yaml_text)
+        if wyoming_readmes:
+            zf.writestr("wyoming/README.txt", "\n\n".join(wyoming_readmes))
     buffer.seek(0)
     return StreamingResponse(buffer, media_type="application/zip", headers={"Content-Disposition": 'attachment; filename="wake-words-bundle.zip"'})
-

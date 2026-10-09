@@ -287,10 +287,11 @@ export function RecorderCard({ wakeWord, maxSeconds, disabled, onCountsChange, o
       setLastPeaks(waveformPeaks(samples));
       setPhase("uploading");
       const saved = await uploadKept(client, storeKey, targetKind, wav, tag === "normal" ? null : tag);
+      if (contributorFilter) onContributorFilter?.(null); // the new take would be hidden behind another person's filter
       await refresh();
       return saved;
     },
-    [agc, deviceId, devices.length, maxSeconds, refresh, client, storeKey, tag],
+    [agc, deviceId, devices.length, maxSeconds, refresh, client, storeKey, tag, contributorFilter, onContributorFilter],
   );
 
   const recordSingle = useCallback(async () => {

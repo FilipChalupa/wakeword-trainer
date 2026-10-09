@@ -361,7 +361,15 @@ export function TrainingCard({ state, log, connected, positiveCount, wakeWord, t
                 {t("queue.title", { n: state.queue.length })}
               </Typography>
               <Stack spacing={0.5}>
-                {state.queue.map((q, i) => (
+                {state.queue.map((q, i) => {
+                  // this run starts after the current one and every queued run before it
+                  let startsIn: number | null = eta;
+                  for (const prev of state.queue.slice(0, i)) {
+                    if (startsIn === null) break;
+                    const guess = historicalSeconds(jobs, prev.overrides.target ?? target, Number(prev.overrides.training_steps ?? state.total_steps));
+                    startsIn = guess === null ? null : startsIn + guess;
+                  }
+                  return (
                   <Stack key={q.id} direction="row" spacing={1} alignItems="center">
                     <Chip size="small" label={i + 1} />
                     <Chip size="small" variant="outlined" label={t((q.overrides.target ?? target) === "wyoming" ? "target.short.wyoming" : "target.short.esphome")} />
@@ -374,13 +382,19 @@ export function TrainingCard({ state, log, connected, positiveCount, wakeWord, t
                           .join(" · ")}
                       </Typography>
                     </Typography>
+                    {running && startsIn !== null && (
+                      <Typography variant="caption" color="text.secondary">
+                        {t("queue.startsIn", { eta: formatEta(startsIn) })}
+                      </Typography>
+                    )}
                     <Tooltip title={t("queue.remove")}>
                       <IconButton size="small" onClick={() => dropQueued(q.id)}>
                         <DeleteIcon fontSize="small" />
                       </IconButton>
                     </Tooltip>
                   </Stack>
-                ))}
+                  );
+                })}
               </Stack>
             </Box>
           )}
