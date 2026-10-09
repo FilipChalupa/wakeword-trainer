@@ -302,10 +302,13 @@ class JobManager:
     def start(self, overrides: dict[str, Any] | None = None, label: str | None = None) -> dict[str, Any]:
         """Starts a run now, or queues it when one is already running."""
         project = current_project()
+        overrides = dict(overrides or {})
+        if overrides.get("target") not in (None, "esphome", "wyoming"):
+            raise HTTPException(400, {"code": "bad_target", "message": "Target must be 'esphome' or 'wyoming'."})
         positives = list_recordings("positive", project)
         if len(positives) < 3:
             raise HTTPException(400, {"code": "too_few_samples", "message": "Record at least 3 wake word samples (20-40 recommended)."})
-        spec = {"project_id": project.id, "overrides": overrides or {}, "label": (label or "").strip()[:60], "queued_at": _now(), "id": uuid.uuid4().hex[:8]}
+        spec = {"project_id": project.id, "overrides": overrides, "label": (label or "").strip()[:60], "queued_at": _now(), "id": uuid.uuid4().hex[:8]}
         if self.is_running():
             with self._lock:
                 self.queue.append(spec)

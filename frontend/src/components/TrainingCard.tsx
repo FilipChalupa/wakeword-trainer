@@ -55,6 +55,8 @@ export function TrainingCard({ state, log, connected, positiveCount, wakeWord, t
   const [showLog, setShowLog] = useState(false);
   const [busy, setBusy] = useState(false);
   const [label, setLabel] = useState("");
+  const [runTarget, setRunTarget] = useState<TrainingParams["target"] | "both">(target);
+  useEffect(() => setRunTarget(target), [target]);
   const [sweepOpen, setSweepOpen] = useState(false);
   const [sweepParam, setSweepParam] = useState<keyof TrainingParams>("training_steps");
   const [sweepValues, setSweepValues] = useState("2000, 4000, 8000");
@@ -111,7 +113,12 @@ export function TrainingCard({ state, log, connected, positiveCount, wakeWord, t
   const start = async () => {
     setBusy(true);
     try {
-      await api.startTraining({}, label);
+      if (runTarget === "both") {
+        await api.startTraining({ target: "esphome" }, label);
+        await api.startTraining({ target: "wyoming" }, label);
+      } else {
+        await api.startTraining({ target: runTarget }, label);
+      }
       setLabel("");
       setShowLog(true);
     } catch (e) {
@@ -179,7 +186,7 @@ export function TrainingCard({ state, log, connected, positiveCount, wakeWord, t
       <CardHeader
         avatar={<ModelTrainingIcon color="primary" />}
         title={t("train.title")}
-        subheader={target === "wyoming" ? t("train.subtitle.wyoming") : t("train.subtitle")}
+        subheader={runTarget === "both" ? t("train.subtitle.both") : runTarget === "wyoming" ? t("train.subtitle.wyoming") : t("train.subtitle")}
         action={
           <Stack direction="row" spacing={1} alignItems="center">
             {!connected && <Chip size="small" label={t("train.offline")} color="warning" variant="outlined" />}
@@ -204,6 +211,15 @@ export function TrainingCard({ state, log, connected, positiveCount, wakeWord, t
               <Button variant="outlined" color="error" size="large" startIcon={<StopIcon />} onClick={cancel} disabled={busy}>
                 {t("train.cancel")}
               </Button>
+            )}
+            {!running && (
+              <Tooltip title={t("train.platformHelp")}>
+                <TextField select size="small" label={t("config.platform")} value={runTarget} onChange={(e) => setRunTarget(e.target.value as typeof runTarget)} sx={{ minWidth: 150 }} disabled={busy}>
+                  <MenuItem value="esphome">{t("target.short.esphome")}</MenuItem>
+                  <MenuItem value="wyoming">{t("target.short.wyoming")}</MenuItem>
+                  <MenuItem value="both">{t("target.both")}</MenuItem>
+                </TextField>
+              </Tooltip>
             )}
             <TextField size="small" label={t("jobs.label")} value={label} onChange={(e) => setLabel(e.target.value)} sx={{ minWidth: 160 }} disabled={busy} />
             <Tooltip title={t("sweep.help")}>

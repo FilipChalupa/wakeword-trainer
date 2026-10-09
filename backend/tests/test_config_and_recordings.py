@@ -79,6 +79,27 @@ def test_train_requires_samples():
     assert res.status_code == 400 and res.json()["detail"]["code"] == "too_few_samples"
 
 
+def test_train_rejects_unknown_target():
+    res = client.post("/api/train", json={"training": {"target": "android"}})
+    assert res.status_code == 400 and res.json()["detail"]["code"] == "bad_target"
+
+
+def test_queued_runs_keep_their_own_target(monkeypatch):
+    """Two starts with different targets (the "both" button) queue two runs that each train for their platform."""
+    from app import jobs
+
+    started: list[dict] = []
+    monkeypatch.setattr(jobs.manager, "is_running", lambda: bool(started))
+    monkeypatch.setattr(jobs.manager, "_start_spec", lambda spec: started.append(spec))
+    monkeypatch.setattr(jobs, "list_recordings", lambda kind, project: ["a", "b", "c"])
+    client.post("/api/train", json={"training": {"target": "esphome"}, "label": "noc"})
+    client.post("/api/train", json={"training": {"target": "wyoming"}, "label": "noc"})
+    assert [s["overrides"]["target"] for s in started] == ["esphome"]
+    queue = client.get("/api/train/queue").json()["queue"]
+    assert [q["overrides"]["target"] for q in queue] == ["wyoming"]
+    jobs.manager.queue.clear()
+
+
 def test_legacy_layout_migration(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DATA_DIR", tmp_path)
     monkeypatch.setattr(config, "PROJECTS_DIR", tmp_path / "projects")
